@@ -361,6 +361,28 @@ export function GlobalStoreProvider({ children }) {
         }
     }, []);
 
+    const fetchProducts = useCallback(async () => {
+        try {
+            const API_BASE = process.env.REACT_APP_API_URL || "http://localhost:5000/api";
+            // Fetch all products with limit 100 to seed the store
+            const res = await fetch(`${API_BASE}/products?limit=100`);
+            const data = await res.json();
+            if (data.ok && data.products && data.products.length > 0) {
+                // Map _id to id for frontend compatibility
+                const mapped = data.products.map(p => ({ ...p, id: p._id }));
+                setProducts(mapped);
+                persist("nm_products", mapped);
+            }
+        } catch (err) {
+            console.error("Failed to fetch products:", err);
+        }
+    }, []);
+
+    // Initial data load
+    useEffect(() => {
+        fetchProducts();
+    }, [fetchProducts]);
+
     const setBackendOrder = useCallback((order) => {
         setOrders(prev => {
             const matchId = order._id || order.id;
@@ -464,7 +486,7 @@ export function GlobalStoreProvider({ children }) {
             // Orders
             orders, placeOrder, acceptOrder, prepareOrder, markReadyForPickup,
             startDelivery, markDelivered, cancelOrder, flagOrder,
-            fetchOrders, setBackendOrder,
+            fetchOrders, fetchProducts, setBackendOrder,
             ORDER_STATUS, canTransition,
             // Support
             tickets, chats, sendSupportMessage, resolveTicket,
