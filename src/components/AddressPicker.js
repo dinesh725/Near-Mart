@@ -137,13 +137,14 @@ export function AddressPicker({ value, onSelect, onClose }) {
         }} onClick={onClose}>
             <div style={{
                 background: P.bg, borderTopLeftRadius: 24, borderTopRightRadius: 24,
-                width: "100%", maxWidth: 560, maxHeight: "85vh",
-                display: "flex", flexDirection: "column",
-                boxShadow: "0 -10px 50px rgba(0,0,0,0.4)",
+                width: "100%", maxWidth: 560,
+                height: "auto", maxHeight: "calc(100vh - 20px)",
+                display: "grid", gridTemplateRows: "auto 1fr auto", /* CRITICAL: Header, Scrollable Content, Footer */
+                boxShadow: "0 -10px 50px rgba(0,0,0,0.5)",
             }} onClick={e => e.stopPropagation()}>
 
                 {/* Header */}
-                <div style={{ padding: "18px 20px 12px", borderBottom: `1px solid ${P.border}`, flexShrink: 0 }}>
+                <div style={{ padding: "18px 20px 12px", borderBottom: `1px solid ${P.border}` }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
                         <div style={{ fontWeight: 800, fontSize: 18 }}>📍 Delivery Address</div>
                         <button onClick={onClose} style={{ background: "none", border: "none", color: P.textMuted, fontSize: 22, cursor: "pointer" }}>✕</button>
@@ -165,7 +166,7 @@ export function AddressPicker({ value, onSelect, onClose }) {
                 </div>
 
                 {/* Content */}
-                <div style={{ flex: 1, overflowY: "auto", minHeight: 0, padding: "16px 20px" }}>
+                <div style={{ overflowY: "auto", padding: "16px 20px" }}>
 
                     {/* ── GPS Tab ── */}
                     {tab === "gps" && (
