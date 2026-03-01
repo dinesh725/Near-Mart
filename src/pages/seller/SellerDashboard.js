@@ -250,9 +250,11 @@ export function SellerDashboard({ activeTab }) {
                     <div style={{ background: P.success + "15", border: `1px solid ${P.success}33`, borderRadius: 12, padding: 14 }}>
                         <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 4, color: P.success }}>Currently Saved</div>
                         <div style={{ fontSize: 13, color: P.text, lineHeight: 1.4 }}>{storeLocation.address}</div>
-                        <div style={{ fontSize: 11, color: P.textMuted, marginTop: 4, fontFamily: "monospace" }}>
-                            {storeLocation.lat.toFixed(4)}, {storeLocation.lng.toFixed(4)}
-                        </div>
+                        {storeLocation.lat != null && storeLocation.lng != null && (
+                            <div style={{ fontSize: 11, color: P.textMuted, marginTop: 4, fontFamily: "monospace" }}>
+                                {storeLocation.lat.toFixed(4)}, {storeLocation.lng.toFixed(4)}
+                            </div>
+                        )}
                     </div>
                 ) : (
                     <div style={{ color: P.textMuted, fontSize: 13, padding: 10, textAlign: "center", border: `2px dashed ${P.border}`, borderRadius: 12 }}>
