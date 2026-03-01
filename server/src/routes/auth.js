@@ -435,20 +435,20 @@ router.post("/send-email-verification", authenticate,
                 emailVerificationExpires: expires,
             });
 
-            const verifyUrl = `${config.corsOrigin}/verify-email?token=${token}`;
+            const verifyUrl = `${EmailService.getFrontendUrl()}/verify-email?token=${token}`;
 
             // Try sending via EmailService (with 12s race timeout)
             try {
                 await Promise.race([
-                    EmailService.sendVerificationEmail(req.user.email, token, req.user.name),
-                    new Promise((_, reject) => setTimeout(() => reject(new Error("SMTP timeout")), 12000)),
+                    EmailService.sendVerificationEmail(req.user.email, verifyUrl, req.user.name),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error("SMTP Connection Timeout - Mail server unreachable")), 12000)),
                 ]);
+                res.json({ ok: true, message: "Verification email sent" });
             } catch (err) {
                 logger.warn(`Failed to send verification email (${err.message}). Dev token fallback: ${verifyUrl}`);
                 console.log(`\n  Email verification URL for ${req.user.email}: ${verifyUrl}\n`);
+                return res.status(500).json({ ok: false, error: err.message || "Failed to send verification email. Please try again later." });
             }
-
-            res.json({ ok: true, message: "Verification email sent" });
         } catch (err) { next(err); }
     }
 );
@@ -500,14 +500,18 @@ router.post("/forgot-password",
                 user.emailVerificationExpires = new Date(Date.now() + 3600000); // 1h
                 await user.save();
 
-                const verifyUrl = `${config.corsOrigin}/reset-password?token=${token}`;
+                const verifyUrl = `${EmailService.getFrontendUrl()}/reset-password?token=${token}`;
                 try {
-                    await EmailService.sendVerificationEmail(user.email, token, user.name);
+                    await Promise.race([
+                        EmailService.sendPasswordResetEmail(user.email, verifyUrl, user.name),
+                        new Promise((_, reject) => setTimeout(() => reject(new Error("SMTP Connection Timeout - Mail server unreachable")), 12000)),
+                    ]);
+                    res.json({ ok: true, message: "Recovery email sent." });
                 } catch (e) {
-                    logger.warn(`Recovery email failed for ${user.email}`);
+                    logger.warn(`Recovery email failed for ${user.email} (${e.message})`);
                     console.log(`\n  [DEV] Password Reset URL: ${verifyUrl}\n`);
+                    return res.status(500).json({ ok: false, error: e.message || "Failed to send recovery email. Please try again later." });
                 }
-                res.json({ ok: true, message: "Recovery email sent." });
             } else {
                 // Cost control limits apply to recovery too
                 const now = new Date();
