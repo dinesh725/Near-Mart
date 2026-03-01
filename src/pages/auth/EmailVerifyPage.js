@@ -65,7 +65,7 @@ export function EmailVerifyPage() {
                         <h2 style={{ color: "#10b981", marginBottom: 8 }}>Email Verified!</h2>
                         <p style={{ color: T.textMuted, fontSize: 14, marginBottom: 24 }}>{message}</p>
                         <button
-                            onClick={() => { window.location.href = "/#/"; window.location.reload(); }}
+                            onClick={() => { window.location.replace("/"); }}
                             style={{
                                 padding: "12px 32px", background: T.gold, color: "#000",
                                 border: "none", borderRadius: 8, fontWeight: "bold", cursor: "pointer", fontSize: 15
