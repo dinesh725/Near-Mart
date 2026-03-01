@@ -56,12 +56,30 @@ export function DeliveryApp({ activeTab }) {
 
     const { liveLocation, isTracking, startTracking, stopTracking, simulateMovement, haversineDistance } = useLiveLocation(currentOrder?._id || currentOrder?.id, "delivery", user?.id || user?._id);
     const [routeInfo, setRouteInfo] = useState({ distance: 0, duration: 0, polyline: null });
-    // Stable callback — prevents DeliveryMap from re-fetching route on every render
     const handleRouteCalculated = useCallback((info) => {
         setRouteInfo(prev => {
             if (prev.distance === info.distance && prev.duration === info.duration) return prev;
             return info;
         });
+    }, []);
+
+    // ── Fetch available delivery tasks from backend ─────────────────────────
+    const fetchAvailableTasks = useCallback(async (lat, lng) => {
+        try {
+            const token = localStorage.getItem("nm_access_token");
+            if (!token) return;
+
+            let url = `${process.env.REACT_APP_API_URL || "http://localhost:5000/api"}/orders/available`;
+            if (lat && lng) url += `?lat=${lat}&lng=${lng}`;
+
+            const res = await fetch(url, {
+                headers: { "Authorization": `Bearer ${token}` }
+            });
+            const data = await res.json();
+            if (data.ok) {
+                setAvailableOrders(data.orders);
+            }
+        } catch (err) { console.error("Failed to fetch tasks", err); }
     }, []);
 
     // Socket connection for geofence validation — use shared singleton
@@ -141,23 +159,6 @@ export function DeliveryApp({ activeTab }) {
         }
     }, [currentOrder]);
 
-    const fetchAvailableTasks = useCallback(async (lat, lng) => {
-        try {
-            const token = localStorage.getItem("nm_access_token");
-            if (!token) return;
-
-            let url = `${process.env.REACT_APP_API_URL || "http://localhost:5000/api"}/orders/available`;
-            if (lat && lng) url += `?lat=${lat}&lng=${lng}`;
-
-            const res = await fetch(url, {
-                headers: { "Authorization": `Bearer ${token}` }
-            });
-            const data = await res.json();
-            if (data.ok) {
-                setAvailableOrders(data.orders);
-            }
-        } catch (err) { console.error("Failed to fetch tasks", err); }
-    }, []);
 
     const handleGoOnline = () => {
         if (online) { setOnline(false); setToast({ msg: "You're now offline 🌙", icon: "😴" }); return; }

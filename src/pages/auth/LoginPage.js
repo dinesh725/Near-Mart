@@ -423,7 +423,7 @@ export function LoginPage() {
                                     <div style={{ textAlign: "center", color: "rgba(255,255,255,0.5)", fontSize: 13 }}>OTP sent to <strong style={{ color: P.primary }}>{otpPhone}</strong></div>
                                     <FloatingInput id="si-otp-code" label="Enter 6-Digit OTP" icon="🔑" value={otpCode} onChange={e => { setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6)); setOtpError(""); }} onKeyDown={e => e.key === "Enter" && handleVerifyOtp()} autoFocus />
                                     {otpError && <div style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)", borderRadius: 12, padding: "10px 14px", color: P.danger, fontSize: 13, fontWeight: 500 }}>⚠ {otpError}</div>}
-                                    <button onClick={handleVerifyOtp} disabled={otpLoading} style={{ width: "100%", padding: "14px 0", background: otpLoading ? "rgba(59,111,255,0.5)" : "linear-gradient(135deg,#3B6FFF,#6366F1)", border: "none", borderRadius: 14, color: "white", fontFamily: "'Sora',sans-serif", fontWeight: 700, fontSize: 15, cursor: otpLoading ? "wait" : "pointer", boxShadow: "0 8px 28px rgba(59,111,255,0.35)", transition: "all .25s" }}>
+                                    <button onClick={() => handleVerifyOtp()} disabled={otpLoading} style={{ width: "100%", padding: "14px 0", background: otpLoading ? "rgba(59,111,255,0.5)" : "linear-gradient(135deg,#3B6FFF,#6366F1)", border: "none", borderRadius: 14, color: "white", fontFamily: "'Sora',sans-serif", fontWeight: 700, fontSize: 15, cursor: otpLoading ? "wait" : "pointer", boxShadow: "0 8px 28px rgba(59,111,255,0.35)", transition: "all .25s" }}>
                                         {otpLoading ? "Verifying..." : "Verify & Sign In"}
                                     </button>
                                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -439,7 +439,7 @@ export function LoginPage() {
                                     <div style={{ textAlign: "center", color: "rgba(255,255,255,0.5)", fontSize: 13 }}>Welcome! Enter your name to complete registration.</div>
                                     <FloatingInput id="si-otp-name" label="Your Name" icon="👤" value={otpName} onChange={e => { setOtpName(e.target.value); setOtpError(""); }} onKeyDown={e => e.key === "Enter" && handleVerifyOtp()} autoFocus />
                                     {otpError && <div style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)", borderRadius: 12, padding: "10px 14px", color: P.danger, fontSize: 13, fontWeight: 500 }}>⚠ {otpError}</div>}
-                                    <button onClick={handleVerifyOtp} disabled={otpLoading || !otpName.trim()} style={{ width: "100%", padding: "14px 0", background: !otpName.trim() ? "rgba(59,111,255,0.3)" : "linear-gradient(135deg,#3B6FFF,#6366F1)", border: "none", borderRadius: 14, color: "white", fontFamily: "'Sora',sans-serif", fontWeight: 700, fontSize: 15, cursor: !otpName.trim() ? "not-allowed" : "pointer", boxShadow: "0 8px 28px rgba(59,111,255,0.35)", transition: "all .25s" }}>
+                                    <button onClick={() => handleVerifyOtp()} disabled={otpLoading || !otpName.trim()} style={{ width: "100%", padding: "14px 0", background: !otpName.trim() ? "rgba(59,111,255,0.3)" : "linear-gradient(135deg,#3B6FFF,#6366F1)", border: "none", borderRadius: 14, color: "white", fontFamily: "'Sora',sans-serif", fontWeight: 700, fontSize: 15, cursor: !otpName.trim() ? "not-allowed" : "pointer", boxShadow: "0 8px 28px rgba(59,111,255,0.35)", transition: "all .25s" }}>
                                         {otpLoading ? "Creating account..." : "Complete Registration"}
                                     </button>
                                 </>
@@ -599,7 +599,7 @@ export function LoginPage() {
 
                                 {otpError && <div style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)", borderRadius: 12, padding: "10px 14px", color: P.danger, fontSize: 13, fontWeight: 500 }}>⚠ {otpError}</div>}
 
-                                <button onClick={handleVerifyOtp} disabled={otpLoading} style={{
+                                <button onClick={() => handleVerifyOtp()} disabled={otpLoading} style={{
                                     width: "100%", padding: "14px 0",
                                     background: otpLoading ? "rgba(59,111,255,0.5)" : "linear-gradient(135deg, #3B6FFF, #6366F1)",
                                     border: "none", borderRadius: 14, color: "white",
@@ -632,7 +632,7 @@ export function LoginPage() {
 
                                 {otpError && <div style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)", borderRadius: 12, padding: "10px 14px", color: P.danger, fontSize: 13, fontWeight: 500 }}>⚠ {otpError}</div>}
 
-                                <button onClick={handleVerifyOtp} disabled={otpLoading || !otpName.trim()} style={{
+                                <button onClick={() => handleVerifyOtp()} disabled={otpLoading || !otpName.trim()} style={{
                                     width: "100%", padding: "14px 0",
                                     background: !otpName.trim() ? "rgba(59,111,255,0.3)" : "linear-gradient(135deg, #3B6FFF, #6366F1)",
                                     border: "none", borderRadius: 14, color: "white",
