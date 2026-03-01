@@ -29,49 +29,13 @@ export const PRODUCTS = [
 
 // ── ORDERS (Live Transaction Pipeline) ────────────────────────────────────────
 // Statuses: PENDING | ACCEPTED | READY_FOR_PICKUP | OUT_FOR_DELIVERY | DELIVERED | CANCELLED
-export const INIT_ORDERS = [
-    {
-        id: "ORD-9010", customerId: "U001", customerName: "Priya Sharma",
-        storeId: "STORE-412", storeName: "Dark Store #412",
-        pickupLocation: { lat: 19.0596, lng: 72.8295 },
-        dropLocation: { lat: 19.0660, lng: 72.8350 },
-        items: [{ productId: "P001", name: "Tomatoes (Grade A)", emoji: "🍅", qty: 2, price: 45 }, { productId: "P002", name: "Farm Fresh Milk 1L", emoji: "🥛", qty: 1, price: 62 }],
-        total: 152, status: "DELIVERED",
-        riderId: "U004", riderName: "Ramesh Kumar",
-        createdAt: Date.now() - 7200000, updatedAt: Date.now() - 3600000,
-        address: "12, Linking Road, Bandra West, Mumbai",
-        paymentMethod: "Wallet", flagged: false,
-    },
-    {
-        id: "ORD-9011", customerId: "U001", customerName: "Priya Sharma",
-        storeId: "STORE-412", storeName: "Dark Store #412",
-        pickupLocation: { lat: 19.0596, lng: 72.8295 },
-        dropLocation: { lat: 19.0620, lng: 72.8300 },
-        items: [{ productId: "P005", name: "Amul Butter 500g", emoji: "🧈", qty: 1, price: 285 }, { productId: "P006", name: "Red Onions", emoji: "🧅", qty: 2, price: 32 }],
-        total: 349, status: "PENDING",
-        riderId: null, riderName: null,
-        createdAt: Date.now() - 900000, updatedAt: Date.now() - 900000,
-        address: "12, Linking Road, Bandra West, Mumbai",
-        paymentMethod: "UPI", flagged: false,
-    },
-];
+export const INIT_ORDERS = [];
 
 // ── SUPPORT TICKETS ────────────────────────────────────────────────────────────
-export const INIT_TICKETS = [
-    { id: "TCK-8841", orderId: "ORD-9010", customerId: "U001", customerName: "Priya Sharma", issue: "Delay in delivery", status: "open", time: Date.now() - 240000, priority: "high" },
-    { id: "TCK-8840", orderId: "ORD-9009", customerId: "U001", customerName: "Priya Sharma", issue: "Missing item in order", status: "open", time: Date.now() - 720000, priority: "medium" },
-    { id: "TCK-8839", orderId: "ORD-9008", customerId: "U001", customerName: "Priya Sharma", issue: "Payment deducted twice", status: "investigating", time: Date.now() - 3600000, priority: "high" },
-    { id: "TCK-8838", orderId: "ORD-9007", customerId: "U001", customerName: "Priya Sharma", issue: "Wrong location pinned", status: "resolved", time: Date.now() - 7200000, priority: "low" },
-];
+export const INIT_TICKETS = [];
 
 // ── NOTIFICATIONS ──────────────────────────────────────────────────────────────
-export const INIT_NOTIFICATIONS = [
-    { id: "N001", forRole: "seller", type: "order", msg: "New order #ORD-9011 received — ₹349", read: false, time: Date.now() - 900000 },
-    { id: "N002", forRole: "customer", type: "update", msg: "Your order #ORD-9010 has been delivered!", read: false, time: Date.now() - 3600000 },
-    { id: "N003", forRole: "support", type: "ticket", msg: "New ticket TCK-8841: Delay in delivery", read: false, time: Date.now() - 240000 },
-    { id: "N004", forRole: "vendor", type: "demand", msg: "High demand signal: Tomatoes (Grade A) — rising", read: false, time: Date.now() - 1800000 },
-    { id: "N005", forRole: "admin", type: "alert", msg: "Stock alert: Spinach is out of stock", read: false, time: Date.now() - 5400000 },
-];
+export const INIT_NOTIFICATIONS = [];
 
 // ── VENDOR INVENTORY ───────────────────────────────────────────────────────────
 export const VENDOR_INVENTORY = [

@@ -39,20 +39,16 @@ router.get("/available", authenticate, authorize("delivery"), async (req, res, n
 
         // Geo-filter to 3000m (3km) if location provided
         if (lat && lng) {
-            query["pickupLocation.coordinates"] = {
+            filter["pickupLocation.coordinates"] = {
                 $near: {
                     $geometry: { type: "Point", coordinates: [parseFloat(lng), parseFloat(lat)] },
                     $maxDistance: 3000,
                 }
             };
-        } else {
-            // Fallback if no GPS provided, perhaps log or handle differently
-            // console.log("No GPS provided to /available — returning unassigned fallback.");
-            // query = { status: ORDER_STATUS.READY_FOR_PICKUP, acceptedByPartnerId: null }; // This line was in the diff, but it would overwrite the geo-filter if present. Moved it to else.
         }
 
         // In advanced batching mode, group results by batchId on the client side, or just send raw
-        const orders = await Order.find(query).sort({ createdAt: 1 }).limit(20);
+        const orders = await Order.find(filter).sort({ createdAt: 1 }).limit(20);
 
         res.json({ ok: true, count: orders.length, orders });
     } catch (err) { next(err); }
