@@ -57,7 +57,8 @@ function AppInner() {
   // ── EMAIL VERIFICATION ROUTE (accessible without auth) ──
   const hash = window.location.hash || "";
   const search = window.location.search || "";
-  if (hash.includes("verify-email") || search.includes("verify-email")) {
+  const pathname = window.location.pathname || "";
+  if (hash.includes("verify-email") || search.includes("verify-email") || pathname.includes("verify-email")) {
     return <EmailVerifyPage />;
   }
 
