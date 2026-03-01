@@ -13,10 +13,31 @@ export class ErrorBoundary extends React.Component {
 
     componentDidCatch(error, info) {
         console.error("[ErrorBoundary] Caught:", error, info.componentStack);
+        // Auto-clear stale session on ReferenceError (TDZ / minification crash)
+        // This prevents infinite crash loop from cached session loading broken chunks
+        if (error instanceof ReferenceError) {
+            try {
+                localStorage.removeItem("nm_session");
+                localStorage.removeItem("nm_access_token");
+                localStorage.removeItem("nm_refresh_token");
+                sessionStorage.clear();
+                console.warn("[ErrorBoundary] Cleared stale session due to ReferenceError");
+            } catch { /* ignore */ }
+        }
     }
 
     handleRetry = () => {
         this.setState({ hasError: false, error: null });
+    };
+
+    handleClearAndReload = () => {
+        try {
+            localStorage.removeItem("nm_session");
+            localStorage.removeItem("nm_access_token");
+            localStorage.removeItem("nm_refresh_token");
+            sessionStorage.clear();
+        } catch { /* ignore */ }
+        window.location.reload();
     };
 
     render() {
@@ -41,7 +62,7 @@ export class ErrorBoundary extends React.Component {
                             {this.state.error.toString()}
                         </pre>
                     )}
-                    <div style={{ display: "flex", gap: 12 }}>
+                    <div style={{ display: "flex", gap: 12, flexWrap: "wrap", justifyContent: "center" }}>
                         <button onClick={this.handleRetry} style={{
                             background: P.primary, color: "white", border: "none", borderRadius: 10,
                             padding: "12px 28px", fontSize: 14, fontWeight: 700, cursor: "pointer",
@@ -49,12 +70,12 @@ export class ErrorBoundary extends React.Component {
                         }}>
                             Try Again
                         </button>
-                        <button onClick={() => window.location.reload()} style={{
+                        <button onClick={this.handleClearAndReload} style={{
                             background: P.surface, color: P.textMuted, border: `1px solid ${P.border}`,
                             borderRadius: 10, padding: "12px 28px", fontSize: 14, fontWeight: 700,
                             cursor: "pointer", fontFamily: "'Sora', sans-serif"
                         }}>
-                            Reload Page
+                            Clear Session & Reload
                         </button>
                     </div>
                 </div>
