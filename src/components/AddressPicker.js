@@ -138,7 +138,7 @@ export function AddressPicker({ value, onSelect, onClose }) {
             <div style={{
                 background: P.bg, borderTopLeftRadius: 24, borderTopRightRadius: 24,
                 width: "100%", maxWidth: 560, maxHeight: "85vh",
-                display: "flex", flexDirection: "column", overflow: "hidden",
+                display: "flex", flexDirection: "column",
                 boxShadow: "0 -10px 50px rgba(0,0,0,0.4)",
             }} onClick={e => e.stopPropagation()}>
 
@@ -165,7 +165,7 @@ export function AddressPicker({ value, onSelect, onClose }) {
                 </div>
 
                 {/* Content */}
-                <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px" }}>
+                <div style={{ flex: 1, overflowY: "auto", minHeight: 0, padding: "16px 20px" }}>
 
                     {/* ── GPS Tab ── */}
                     {tab === "gps" && (
