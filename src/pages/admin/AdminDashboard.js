@@ -1,14 +1,12 @@
 import React, { useState } from "react";
 import { P } from "../../theme/theme";
-import { useAuth } from "../../auth/AuthContext";
 import { useStore } from "../../context/GlobalStore";
 import { fmtFull } from "../../utils/helpers";
 
 const STATUS_COLOR = { PENDING: P.warning, CONFIRMED: P.primary, PREPARING: "#8B5CF6", ACCEPTED: P.primary, READY_FOR_PICKUP: P.accent, OUT_FOR_DELIVERY: "#F59E0B", DELIVERED: P.success, CANCELLED: P.danger };
 
 export function AdminDashboard({ activeTab }) {
-    const { user } = useAuth();
-    const { orders, products, tickets, notifications, resetData } = useStore();
+    const { orders, products, tickets, resetData } = useStore();
     const [alerts, setAlerts] = useState([
         { id: 1, level: "critical", title: "Payment Gateway Latency", body: "Razorpay p95 > 800ms. Auto-fallback to CCAvenue active.", dismissed: false, escalated: false },
         { id: 2, level: "warning", title: "Rider Shortage — Pune", body: "Demand surge detected. Surge pricing 1.2x auto-enabled.", dismissed: false, escalated: false },

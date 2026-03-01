@@ -60,7 +60,7 @@ export function GlobalStoreProvider({ children }) {
     // ── Platform Collections ─────────────────────────────────────────────────
     const [orders, setOrders] = useState(() => load("nm_orders", INIT_ORDERS));
     const [cart, setCart] = useState(() => load("nm_cart", {}));           // { [productId]: qty }
-    const orderCounterRef = useRef(Date.now());     // Monotonic order ID counter
+    const _orderCounterRef = useRef(Date.now());     // Monotonic order ID counter (retained for future use)
     const [tickets, setTickets] = useState(() => load("nm_tickets", INIT_TICKETS));
     const [notifications, setNotifications] = useState(() => load("nm_notifs", INIT_NOTIFICATIONS));
     const [vendorInventory, setVendorInventory] = useState(() => load("nm_vendinv", INIT_VENDOR_INV));

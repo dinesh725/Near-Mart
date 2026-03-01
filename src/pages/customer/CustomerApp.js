@@ -116,7 +116,6 @@ export function CustomerApp({ activeTab, setActiveTab }) {
     const { products, cart, cartCount, cartTotal, addToCart, removeFromCart, clearCart, orders, fetchOrders, setBackendOrder, showToast } = useStore();
     const [search, setSearch] = useState("");
     const [category, setCategory] = useState("All");
-    const [checkingOut, setCheckingOut] = useState(false);
     const [showCheckout, setShowCheckout] = useState(false);
     const [loading, setLoading] = useState(true);
     const [detailProduct, setDetailProduct] = useState(null);
@@ -202,7 +201,8 @@ export function CustomerApp({ activeTab, setActiveTab }) {
         };
 
         fetchLocalCatalog();
-    }, [customerGps, search, category, products.length]); // re-run if search changes though 'filtered' changes so this needs care. Actually, let's just use filtered directly mapped:
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [customerGps, search, category, products.length]);
 
     // Actually, to prevent infinite loops, we separate the derived state:
     const displayProducts = customerGps && liveProducts.length > 0 ? liveProducts : filtered;

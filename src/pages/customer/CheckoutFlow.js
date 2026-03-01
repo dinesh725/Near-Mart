@@ -12,8 +12,7 @@ import { AddressPicker } from "../../components/AddressPicker";
 const API_BASE = process.env.REACT_APP_API_URL || "http://localhost:5000/api";
 const STEPS = ["Review", "Address", "Payment", "Processing", "Result"];
 
-// Default store location (fallback when seller GPS not set)
-const DEFAULT_STORE = { lat: 19.0596, lng: 72.8295, address: "NearMart Dark Store #412, Mumbai" };
+
 
 function loadRazorpayScript() {
     return new Promise((resolve) => {
@@ -162,7 +161,7 @@ export function CheckoutFlow({ onClose, onSuccess }) {
             // ── Path 3: Local-only fallback (GlobalStore) ────────────────────
             if (!backendOrder) {
                 setProcessingMsg("Creating local order...");
-                const { placeOrder } = await import("../../context/GlobalStore");
+                await import("../../context/GlobalStore"); // ensure module loaded
                 // Use the placeOrder already available from useStore
                 const localOrder = placeOrderFn(
                     user?.id || "GUEST", user?.name || "Customer",

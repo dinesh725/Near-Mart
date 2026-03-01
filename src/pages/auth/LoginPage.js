@@ -140,7 +140,7 @@ function StrengthBar({ password }) {
 }
 
 export function LoginPage() {
-    const { loginAsRole, login, signup, loginWithGoogle, refreshUser } = useAuth();
+    const { loginAsRole, login, signup, loginWithGoogle } = useAuth();
     const [tab, setTab] = useState("demo");
     const [loginMethod, setLoginMethod] = useState("email"); // "email" | "phone"
     const [hovered, setHovered] = useState(null);
@@ -162,7 +162,8 @@ export function LoginPage() {
 
     const set = (k, v) => { setForm(f => ({ ...f, [k]: v })); setErrs(e => ({ ...e, [k]: "" })); setServerErr(""); };
 
-    const API_BASE = (process.env.REACT_APP_API_URL || 'http://localhost:5000/api').replace(/\/+$/, '');
+    // API_BASE used by OTP handlers below
+    const API_BASE = (process.env.REACT_APP_API_URL || 'http://localhost:5000/api').replace(/\/+$/, ''); // eslint-disable-line no-unused-vars
 
     const isLocked = useMemo(() => {
         const e = localStorage.getItem("nm_otp_lock");
