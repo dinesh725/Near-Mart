@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#070B12" />
+  <title>NearMart — Offline</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#070B12;color:#e2e8f0;min-height:100vh;min-height:100dvh;display:flex;align-items:center;justify-content:center;padding:24px;-webkit-font-smoothing:antialiased}
+    .container{text-align:center;max-width:360px;width:100%}
+    .icon{font-size:64px;margin-bottom:24px;animation:bounce 2s ease infinite}
+    @keyframes bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-12px)}}
+    .brand{font-size:28px;font-weight:800;color:#f6c942;margin-bottom:8px;letter-spacing:.5px}
+    h1{font-size:20px;font-weight:700;margin-bottom:12px;color:#f1f5f9}
+    p{font-size:14px;color:#94a3b8;line-height:1.6;margin-bottom:32px}
+    .retry-btn{display:inline-flex;align-items:center;gap:8px;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:white;border:none;padding:14px 32px;border-radius:14px;font-size:15px;font-weight:700;cursor:pointer;transition:all .2s;font-family:inherit;box-shadow:0 8px 24px rgba(99,102,241,.35)}
+    .retry-btn:hover{transform:translateY(-2px);box-shadow:0 12px 32px rgba(99,102,241,.45)}
+    .retry-btn:active{transform:scale(.97)}
+    .hint{margin-top:24px;font-size:12px;color:#64748b}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="icon">📡</div>
+    <div class="brand">NearMart</div>
+    <h1>You're Offline</h1>
+    <p>It looks like you've lost your internet connection. Check your Wi-Fi or mobile data and try again.</p>
+    <button class="retry-btn" onclick="window.location.reload()">
+      🔄 Try Again
+    </button>
+    <div class="hint">The app will reconnect automatically when your network is back.</div>
+  </div>
+</body>
+</html>

@@ -5,6 +5,24 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  /* Beta Readiness 320px Enforcement */
+  overflow-x: hidden;
+  max-width: 100vw;
+  background-color: #0b0f19;
+  /* Allow space for iOS/Android bottom nav gestures */
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Enforce 44px minimum tap target sizes on touch devices for accessibility */
+@media (pointer: coarse) {
+  button, 
+  a.btn, 
+  input[type="submit"], 
+  .mode-btn, 
+  .p-btn {
+    min-height: 44px;
+    min-width: 44px;
+  }
 }
 
 code {

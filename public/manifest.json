@@ -1,6 +1,7 @@
 {
-  "short_name": "React App",
-  "name": "Create React App Sample",
+  "short_name": "NearMart",
+  "name": "NearMart — Multi-Role Commerce Platform",
+  "description": "Shop, sell, deliver, and manage — all in one platform. Browse groceries, manage orders, track deliveries, and handle supply chain operations.",
   "icons": [
     {
       "src": "favicon.ico",
@@ -10,16 +11,26 @@
     {
       "src": "logo192.png",
       "type": "image/png",
-      "sizes": "192x192"
+      "sizes": "192x192",
+      "purpose": "any maskable"
     },
     {
       "src": "logo512.png",
       "type": "image/png",
-      "sizes": "512x512"
+      "sizes": "512x512",
+      "purpose": "any maskable"
     }
   ],
   "start_url": ".",
+  "scope": "/",
   "display": "standalone",
-  "theme_color": "#000000",
-  "background_color": "#ffffff"
+  "orientation": "portrait",
+  "theme_color": "#070B12",
+  "background_color": "#070B12",
+  "categories": [
+    "shopping",
+    "business",
+    "food"
+  ],
+  "prefer_related_applications": false
 }

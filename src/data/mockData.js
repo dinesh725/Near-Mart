@@ -1,0 +1,89 @@
+/** Seed data for NearMart Global Commerce Engine */
+
+// ── SUPPLIERS / VENDORS ────────────────────────────────────────────────────────
+export const SUPPLIERS = [
+    { id: "S001", name: "AgriVista Foods", type: "manufacturer", contact: "Ramesh Gupta", phone: "+91 98765 43210", email: "rg@agrivista.com", city: "Nashik, MH", gst: "27AADCS1234D1Z5", rating: 4.8, reviews: 42, reliabilityScore: 94, deliveryAvg: "1.2 days", paymentTerms: "Net 14", categories: ["Fresh Produce", "Organic"], products: 18, totalPurchased: 284000, lastOrder: "Mar 20", status: "active", verified: true, priceCompetitiveness: 88, tier: "manufacturer" },
+    { id: "S002", name: "Metro Wholesale Hub", type: "wholesaler", contact: "Sneha Patel", phone: "+91 87654 32109", email: "sp@metrohub.in", city: "Mumbai, MH", gst: "27AABCM5678F1Z1", rating: 4.5, reviews: 89, reliabilityScore: 87, deliveryAvg: "0.8 days", paymentTerms: "Net 7", categories: ["Dairy", "Beverages", "Grains"], products: 34, totalPurchased: 521000, lastOrder: "Mar 22", status: "active", verified: true, priceCompetitiveness: 74, tier: "wholesaler" },
+    { id: "S003", name: "Kisan Direct Network", type: "distributor", contact: "Vijay Sharma", phone: "+91 76543 21098", email: "vs@kisannet.org", city: "Pune, MH", gst: "27AACKN9012G1Z8", rating: 4.2, reviews: 27, reliabilityScore: 78, deliveryAvg: "2.1 days", paymentTerms: "Advance", categories: ["Fresh Produce", "Grains", "Spices"], products: 22, totalPurchased: 143000, lastOrder: "Mar 18", status: "active", verified: true, priceCompetitiveness: 92, tier: "distributor" },
+    { id: "S004", name: "FreshLink Distributors", type: "distributor", contact: "Amita Joshi", phone: "+91 65432 10987", email: "aj@freshlink.in", city: "Thane, MH", gst: "27AACFL3456H1Z2", rating: 3.9, reviews: 14, reliabilityScore: 69, deliveryAvg: "1.6 days", paymentTerms: "Net 7", categories: ["Dairy", "Eggs", "Bakery"], products: 11, totalPurchased: 67000, lastOrder: "Mar 10", status: "review", verified: false, priceCompetitiveness: 81, tier: "distributor" },
+];
+
+// ── PURCHASE ORDERS (SCM) ──────────────────────────────────────────────────────
+export const PURCHASE_ORDERS = [
+    { id: "PO-2025-0312", supplier: "AgriVista Foods", supplierId: "S001", date: "Mar 22", expectedDelivery: "Mar 24", deliveredDate: "Mar 23", status: "delivered", invoiceNo: "AV/25/0891", items: [{ name: "Tomatoes (Grade A)", qty: 50, unit: "kg", costPrice: 28, totalCost: 1400 }], subtotal: 3360, gst: 168, discount: 100, total: 3428, paymentStatus: "paid", paymentMethod: "NEFT", hasInvoice: true },
+    { id: "PO-2025-0311", supplier: "Metro Wholesale Hub", supplierId: "S002", date: "Mar 20", expectedDelivery: "Mar 21", deliveredDate: "Mar 21", status: "delivered", invoiceNo: "MWH/2025/4421", items: [{ name: "Farm Fresh Milk 1L", qty: 48, unit: "pcs", costPrice: 48, totalCost: 2304 }], subtotal: 9364, gst: 468, discount: 200, total: 9632, paymentStatus: "paid", paymentMethod: "UPI", hasInvoice: true },
+    { id: "PO-2025-0315", supplier: "Kisan Direct Network", supplierId: "S003", date: "Mar 23", expectedDelivery: "Mar 25", deliveredDate: null, status: "in_transit", invoiceNo: "KDN/25/0284", items: [{ name: "Brown Rice 25kg", qty: 5, unit: "bags", costPrice: 1800, totalCost: 9000 }], subtotal: 10100, gst: 505, discount: 0, total: 10605, paymentStatus: "pending", paymentMethod: "NEFT", hasInvoice: true },
+    { id: "PO-2025-0314", supplier: "FreshLink Distributors", supplierId: "S004", date: "Mar 21", expectedDelivery: "Mar 23", deliveredDate: null, status: "delayed", invoiceNo: null, items: [{ name: "Free Range Eggs (Tray)", qty: 10, unit: "trays", costPrice: 280, totalCost: 2800 }], subtotal: 2800, gst: 0, discount: 0, total: 2800, paymentStatus: "pending", paymentMethod: "Cash", hasInvoice: false },
+];
+
+// ── PRODUCTS ───────────────────────────────────────────────────────────────────
+export const PRODUCTS = [
+    { id: "P001", name: "Tomatoes (Grade A)", emoji: "🍅", category: "Fresh Produce", supplierId: "S001", supplier: "AgriVista Foods", costPrice: 28, sellingPrice: 45, mrp: 55, gstRate: 5, deliveryAlloc: 3.2, platformComm: 4.5, stock: 42, unit: "kg", marketAvgPrice: 48, competitorLow: 40, competitorHigh: 55, demandTrend: "rising", transparencyMode: "partial", monthlySales: 234, monthlyRevenue: 10530, monthlyProfit: 2456, weekSales: [28, 32, 41, 38, 45, 52, 48], rating: 4.5, reviewCount: 128, description: "Farm-fresh Grade A tomatoes sourced directly from AgriVista's hydroponic greenhouses. Rich red colour, firm texture — perfect for salads, curries and sauces.", deliveryMinutes: 18, freshness: "Harvested today" },
+    { id: "P002", name: "Farm Fresh Milk 1L", emoji: "🥛", category: "Dairy", supplierId: "S002", supplier: "Metro Wholesale Hub", costPrice: 48, sellingPrice: 62, mrp: 68, gstRate: 0, deliveryAlloc: 2.8, platformComm: 6.2, stock: 38, unit: "pcs", marketAvgPrice: 60, competitorLow: 58, competitorHigh: 65, demandTrend: "stable", transparencyMode: "private", monthlySales: 412, monthlyRevenue: 25544, monthlyProfit: 2436, weekSales: [55, 60, 58, 62, 68, 72, 65], rating: 4.7, reviewCount: 312, description: "Pasteurised full-cream milk from verified dairy farms. Rich in calcium and protein. No preservatives. Cold-chain delivered in insulated packaging.", deliveryMinutes: 14, freshness: "Packed this morning" },
+    { id: "P003", name: "Spinach (Fresh Bunch)", emoji: "🥬", category: "Fresh Produce", supplierId: "S001", supplier: "AgriVista Foods", costPrice: 22, sellingPrice: 35, mrp: 45, gstRate: 0, deliveryAlloc: 2.5, platformComm: 3.5, stock: 0, unit: "kg", marketAvgPrice: 38, competitorLow: 30, competitorHigh: 45, demandTrend: "rising", transparencyMode: "full", monthlySales: 189, monthlyRevenue: 6615, monthlyProfit: 1323, weekSales: [20, 25, 22, 28, 32, 30, 27], rating: 4.3, reviewCount: 87, description: "Crisp, dark-green bunches of baby spinach. Washed and sorted. High in iron and antioxidants. Ideal for smoothies, sabzi, and salads.", deliveryMinutes: 20, freshness: "Best before 2 days" },
+    { id: "P004", name: "Brown Rice 25kg", emoji: "🌾", category: "Grains", supplierId: "S003", supplier: "Kisan Direct", costPrice: 1800, sellingPrice: 2200, mrp: 2500, gstRate: 5, deliveryAlloc: 40, platformComm: 220, stock: 15, unit: "bag", marketAvgPrice: 2100, competitorLow: 1950, competitorHigh: 2350, demandTrend: "stable", transparencyMode: "private", monthlySales: 28, monthlyRevenue: 61600, monthlyProfit: 3920, weekSales: [3, 4, 3, 5, 4, 6, 3], rating: 4.6, reviewCount: 54, description: "Premium unpolished brown rice from Kisan Direct farms. Retains bran layer for maximum nutrition. Stone-free, vacuum packed for freshness.", deliveryMinutes: 25, freshness: "Milled this week" },
+    { id: "P005", name: "Amul Butter 500g", emoji: "🧈", category: "Dairy", supplierId: "S002", supplier: "Metro Wholesale Hub", costPrice: 240, sellingPrice: 285, mrp: 310, gstRate: 12, deliveryAlloc: 8, platformComm: 28.5, stock: 20, unit: "pcs", marketAvgPrice: 280, competitorLow: 265, competitorHigh: 295, demandTrend: "falling", transparencyMode: "partial", monthlySales: 96, monthlyRevenue: 27360, monthlyProfit: 576, weekSales: [14, 16, 12, 10, 11, 8, 10], rating: 4.8, reviewCount: 203, description: "India's favourite salted butter. Creamy, smooth texture. Made from fresh cream. Perfect for toast, cooking and baking. FSSAI certified.", deliveryMinutes: 16, freshness: "Use by 90 days" },
+    { id: "P006", name: "Red Onions", emoji: "🧅", category: "Fresh Produce", supplierId: "S001", supplier: "AgriVista Foods", costPrice: 18, sellingPrice: 32, mrp: 40, gstRate: 0, deliveryAlloc: 2, platformComm: 3.2, stock: 60, unit: "kg", marketAvgPrice: 30, competitorLow: 28, competitorHigh: 38, demandTrend: "stable", transparencyMode: "partial", monthlySales: 310, monthlyRevenue: 9920, monthlyProfit: 2790, weekSales: [40, 45, 42, 50, 48, 52, 48], rating: 4.4, reviewCount: 176, description: "Medium-sized red onions from Nashik farms. Naturally dried, pungent flavour. Essential for Indian cooking. Sorted and graded for quality.", deliveryMinutes: 18, freshness: "Harvested 3 days ago" },
+    { id: "P007", name: "Multigrain Bread", emoji: "🍞", category: "Bakery", supplierId: "S004", supplier: "FreshLink Distributors", costPrice: 35, sellingPrice: 55, mrp: 65, gstRate: 5, deliveryAlloc: 3, platformComm: 5.5, stock: 28, unit: "pcs", marketAvgPrice: 52, competitorLow: 48, competitorHigh: 62, demandTrend: "rising", transparencyMode: "full", monthlySales: 140, monthlyRevenue: 7700, monthlyProfit: 1540, weekSales: [18, 20, 19, 22, 21, 24, 20], rating: 4.2, reviewCount: 91, description: "Artisan multigrain loaf with oats, flaxseed, sunflower seeds and whole wheat. No maida. Soft, fluffy crumb. Baked fresh every morning.", deliveryMinutes: 22, freshness: "Baked today" },
+];
+
+// ── ORDERS (Live Transaction Pipeline) ────────────────────────────────────────
+// Statuses: PENDING | ACCEPTED | READY_FOR_PICKUP | OUT_FOR_DELIVERY | DELIVERED | CANCELLED
+export const INIT_ORDERS = [
+    {
+        id: "ORD-9010", customerId: "U001", customerName: "Priya Sharma",
+        storeId: "STORE-412", storeName: "Dark Store #412",
+        pickupLocation: { lat: 19.0596, lng: 72.8295 },
+        dropLocation: { lat: 19.0660, lng: 72.8350 },
+        items: [{ productId: "P001", name: "Tomatoes (Grade A)", emoji: "🍅", qty: 2, price: 45 }, { productId: "P002", name: "Farm Fresh Milk 1L", emoji: "🥛", qty: 1, price: 62 }],
+        total: 152, status: "DELIVERED",
+        riderId: "U004", riderName: "Ramesh Kumar",
+        createdAt: Date.now() - 7200000, updatedAt: Date.now() - 3600000,
+        address: "12, Linking Road, Bandra West, Mumbai",
+        paymentMethod: "Wallet", flagged: false,
+    },
+    {
+        id: "ORD-9011", customerId: "U001", customerName: "Priya Sharma",
+        storeId: "STORE-412", storeName: "Dark Store #412",
+        pickupLocation: { lat: 19.0596, lng: 72.8295 },
+        dropLocation: { lat: 19.0620, lng: 72.8300 },
+        items: [{ productId: "P005", name: "Amul Butter 500g", emoji: "🧈", qty: 1, price: 285 }, { productId: "P006", name: "Red Onions", emoji: "🧅", qty: 2, price: 32 }],
+        total: 349, status: "PENDING",
+        riderId: null, riderName: null,
+        createdAt: Date.now() - 900000, updatedAt: Date.now() - 900000,
+        address: "12, Linking Road, Bandra West, Mumbai",
+        paymentMethod: "UPI", flagged: false,
+    },
+];
+
+// ── SUPPORT TICKETS ────────────────────────────────────────────────────────────
+export const INIT_TICKETS = [
+    { id: "TCK-8841", orderId: "ORD-9010", customerId: "U001", customerName: "Priya Sharma", issue: "Delay in delivery", status: "open", time: Date.now() - 240000, priority: "high" },
+    { id: "TCK-8840", orderId: "ORD-9009", customerId: "U001", customerName: "Priya Sharma", issue: "Missing item in order", status: "open", time: Date.now() - 720000, priority: "medium" },
+    { id: "TCK-8839", orderId: "ORD-9008", customerId: "U001", customerName: "Priya Sharma", issue: "Payment deducted twice", status: "investigating", time: Date.now() - 3600000, priority: "high" },
+    { id: "TCK-8838", orderId: "ORD-9007", customerId: "U001", customerName: "Priya Sharma", issue: "Wrong location pinned", status: "resolved", time: Date.now() - 7200000, priority: "low" },
+];
+
+// ── NOTIFICATIONS ──────────────────────────────────────────────────────────────
+export const INIT_NOTIFICATIONS = [
+    { id: "N001", forRole: "seller", type: "order", msg: "New order #ORD-9011 received — ₹349", read: false, time: Date.now() - 900000 },
+    { id: "N002", forRole: "customer", type: "update", msg: "Your order #ORD-9010 has been delivered!", read: false, time: Date.now() - 3600000 },
+    { id: "N003", forRole: "support", type: "ticket", msg: "New ticket TCK-8841: Delay in delivery", read: false, time: Date.now() - 240000 },
+    { id: "N004", forRole: "vendor", type: "demand", msg: "High demand signal: Tomatoes (Grade A) — rising", read: false, time: Date.now() - 1800000 },
+    { id: "N005", forRole: "admin", type: "alert", msg: "Stock alert: Spinach is out of stock", read: false, time: Date.now() - 5400000 },
+];
+
+// ── VENDOR INVENTORY ───────────────────────────────────────────────────────────
+export const VENDOR_INVENTORY = [
+    { id: "VI001", supplierId: "S001", productName: "Tomatoes (Grade A)", emoji: "🍅", stock: 500, unit: "kg", costPrice: 28, minOrderQty: 20, leadDays: 1 },
+    { id: "VI002", supplierId: "S001", productName: "Spinach (Fresh)", emoji: "🥬", stock: 200, unit: "kg", costPrice: 22, minOrderQty: 10, leadDays: 1 },
+    { id: "VI003", supplierId: "S001", productName: "Red Onions", emoji: "🧅", stock: 800, unit: "kg", costPrice: 18, minOrderQty: 25, leadDays: 1 },
+    { id: "VI004", supplierId: "S002", productName: "Farm Fresh Milk 1L", emoji: "🥛", stock: 300, unit: "pcs", costPrice: 48, minOrderQty: 24, leadDays: 0 },
+    { id: "VI005", supplierId: "S002", productName: "Amul Butter 500g", emoji: "🧈", stock: 120, unit: "pcs", costPrice: 240, minOrderQty: 12, leadDays: 0 },
+];
+
+// ── PROCUREMENT RECORDS (Vendor → Seller) ──────────────────────────────────────
+export const INIT_PROCUREMENT = [
+    { id: "PR-001", vendorId: "S001", vendorName: "AgriVista Foods", sellerId: "STORE-412", sellerName: "Dark Store #412", productName: "Tomatoes (Grade A)", emoji: "🍅", qty: 50, costPrice: 28, total: 1400, status: "fulfilled", date: Date.now() - 86400000 },
+    { id: "PR-002", vendorId: "S002", vendorName: "Metro Wholesale Hub", sellerId: "STORE-412", sellerName: "Dark Store #412", productName: "Farm Fresh Milk 1L", emoji: "🥛", qty: 48, costPrice: 48, total: 2304, status: "pending", date: Date.now() - 7200000 },
+];
