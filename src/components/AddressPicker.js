@@ -121,7 +121,7 @@ export function AddressPicker({ value, onSelect, onClose }) {
         onClose?.();
     }, [selected, onSelect, onClose]);
 
-    const isConfirmable = !!selected;
+
 
     const TABS = [
         { id: "gps", label: "📍 GPS", icon: "📍" },

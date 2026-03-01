@@ -323,6 +323,7 @@ const DeliveryMap = ({ pickupLocation, dropLocation, liveLocation, precalculated
 
         fetchRoute();
         return () => { cancelled = true; };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [mapReady, pickupLocation?.lat, pickupLocation?.lng, dropLocation?.lat, dropLocation?.lng, precalculatedRoute, setRouteOnMap]);
 
     // ── Dynamic re-route when rider moves > 20m ──────────────────────────────
@@ -348,6 +349,7 @@ const DeliveryMap = ({ pickupLocation, dropLocation, liveLocation, precalculated
             } catch { /* ignore re-route failures */ }
         })();
         return () => { cancelled = true; };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [mapReady, liveLocation?.lat, liveLocation?.lng, dropLocation?.lat, dropLocation?.lng, setRouteOnMap]);
 
     // ── Fit Bounds (once) ────────────────────────────────────────────────────
@@ -360,6 +362,7 @@ const DeliveryMap = ({ pickupLocation, dropLocation, liveLocation, precalculated
         points.forEach(p => bounds.extend([p.lng, p.lat]));
         mapRef.current.fitBounds(bounds, { padding: 60, maxZoom: 16, duration: 800 });
         initialBoundsSet.current = true;
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [mapReady, pickupLocation?.lat, dropLocation?.lat, liveLocation?.lat]);
 
     // ── No token fallback ────────────────────────────────────────────────────

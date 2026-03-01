@@ -1,8 +1,7 @@
-import React, { useState, useRef } from "react";
+import React, { useState } from "react";
 import ReactDOM from "react-dom";
 import { P } from "../theme/theme";
 import { useStore } from "../context/GlobalStore";
-import { useAuth } from "../auth/AuthContext";
 
 const SORT_OPTIONS = [
     { key: "distance", label: "📍 Nearest" },
@@ -79,7 +78,7 @@ function SellerCard({ product, onAdd, isAdded }) {
 export function MultiSellerSheet({ productName, variants, onClose }) {
     const [sort, setSort] = useState("distance");
     const [addedId, setAddedId] = useState(null);
-    const { addToCart, cart } = useStore();
+    const { addToCart } = useStore();
 
     const sorted = [...variants].sort((a, b) => {
         switch (sort) {
