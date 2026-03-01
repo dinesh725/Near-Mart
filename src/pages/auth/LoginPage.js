@@ -24,7 +24,7 @@ function GoogleAuthScript({ onSuccess, onError }) {
 
     const renderButton = (id) => {
         if (window.google) {
-            window.google.accounts.id.renderButton(document.getElementById(id), { theme: "outline", size: "large", type: "standard", shape: "pill", width: "100%" });
+            window.google.accounts.id.renderButton(document.getElementById(id), { theme: "outline", size: "large", type: "standard", shape: "pill", width: "320" });
         }
     };
 
@@ -388,7 +388,7 @@ export function LoginPage() {
 
                     {/* Email + Password Sign In */}
                     {loginMethod === "email" && (
-                        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                        <form onSubmit={e => { e.preventDefault(); handleSignIn(); }} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
                             <FloatingInput id="si-email" label="Email Address" type="email" icon="✉" value={form.email} onChange={e => set("email", e.target.value)} onKeyDown={e => e.key === "Enter" && handleSignIn()} error={errs.email} autoFocus />
                             <FloatingInput id="si-pw" label="Password" type={showPw ? "text" : "password"} icon="🔒" value={form.password} onChange={e => set("password", e.target.value)} onKeyDown={e => e.key === "Enter" && handleSignIn()} error={errs.password} rightSlot={pwToggle} />
                             {serverErr && <div style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)", borderRadius: 12, padding: "10px 14px", color: P.danger, fontSize: 13, fontWeight: 500 }}>⚠ {serverErr}</div>}
@@ -397,9 +397,9 @@ export function LoginPage() {
                             </button>
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>
                                 <button onClick={() => setServerErr("✉ Password reset link sent to your email!")} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.3)", cursor: "pointer", fontFamily: "'Sora',sans-serif", fontSize: 12 }}>Forgot Password?</button>
-                                <button onClick={() => setTab("signup")} style={{ background: "none", border: "none", color: P.primary, cursor: "pointer", fontWeight: 700, fontFamily: "'Sora',sans-serif", fontSize: 12 }}>Create Account →</button>
+                                <button type="button" onClick={() => setTab("signup")} style={{ background: "none", border: "none", color: P.primary, cursor: "pointer", fontWeight: 700, fontFamily: "'Sora',sans-serif", fontSize: 12 }}>Create Account →</button>
                             </div>
-                        </div>
+                        </form>
                     )}
 
                     {/* Phone + OTP Sign In */}
@@ -468,7 +468,7 @@ export function LoginPage() {
                                 <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 13, margin: 0 }}>Join NearMart as your role</p>
                             </div>
 
-                            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                            <form onSubmit={e => { e.preventDefault(); handleSignUp(); }} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
                                 <FloatingInput id="su-name" label="Full Name" icon="👤" value={form.name} onChange={e => set("name", e.target.value)} error={errs.name} autoFocus />
                                 <FloatingInput id="su-email" label="Email Address" type="email" icon="✉" value={form.email} onChange={e => set("email", e.target.value)} error={errs.email} />
 
@@ -529,13 +529,13 @@ export function LoginPage() {
 
                                 {serverErr && <div style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)", borderRadius: 12, padding: "10px 14px", color: P.danger, fontSize: 13, fontWeight: 500 }}>⚠ {serverErr}</div>}
 
-                                <button onClick={handleSignUp} disabled={loading} style={{ width: "100%", padding: "14px 0", background: loading ? "rgba(59,111,255,0.5)" : "linear-gradient(135deg,#3B6FFF,#6366F1)", border: "none", borderRadius: 14, color: "white", fontFamily: "'Sora',sans-serif", fontWeight: 700, fontSize: 15, cursor: loading ? "wait" : "pointer", boxShadow: "0 8px 28px rgba(59,111,255,0.35)", transition: "all .25s", letterSpacing: 0.3 }}>
+                                <button type="submit" disabled={loading} style={{ width: "100%", padding: "14px 0", background: loading ? "rgba(59,111,255,0.5)" : "linear-gradient(135deg,#3B6FFF,#6366F1)", border: "none", borderRadius: 14, color: "white", fontFamily: "'Sora',sans-serif", fontWeight: 700, fontSize: 15, cursor: loading ? "wait" : "pointer", boxShadow: "0 8px 28px rgba(59,111,255,0.35)", transition: "all .25s", letterSpacing: 0.3 }}>
                                     {loading ? <><span className="spinner" style={{ marginRight: 8 }} />Creating account...</> : "Create Account"}
                                 </button>
-                            </div>
+                            </form>
 
                             <div style={{ marginTop: 16, textAlign: "center" }}>
-                                <button onClick={() => setTab("signin")} style={{ background: "none", border: "none", color: P.primary, cursor: "pointer", fontWeight: 700, fontFamily: "'Sora',sans-serif", fontSize: 12 }}>Already have an account? Sign In</button>
+                                <button type="button" onClick={() => setTab("signin")} style={{ background: "none", border: "none", color: P.primary, cursor: "pointer", fontWeight: 700, fontFamily: "'Sora',sans-serif", fontSize: 12 }}>Already have an account? Sign In</button>
                             </div>
                         </>
                     )}
