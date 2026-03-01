@@ -285,6 +285,20 @@ router.get("/", authenticate, async (req, res, next) => {
     } catch (err) { next(err); }
 });
 
+// ── My Active Order(s) — For App Lifecycle Restoration ───────────────────────
+router.get("/my-active",
+    authenticate, authorize("delivery"),
+    async (req, res, next) => {
+        try {
+            const orders = await Order.find({
+                acceptedByPartnerId: req.user._id,
+                status: { $in: ["READY_FOR_PICKUP", "OUT_FOR_DELIVERY"] },
+            }).sort({ updatedAt: -1 });
+            res.json({ ok: true, orders });
+        } catch (err) { next(err); }
+    }
+);
+
 // ── Get Single Order ──────────────────────────────────────────────────────────
 router.get("/:id", authenticate, async (req, res, next) => {
     try {
@@ -693,19 +707,7 @@ router.patch("/shift/end",
     }
 );
 
-// ── My Active Order(s) — For App Lifecycle Restoration ───────────────────────
-router.get("/my-active",
-    authenticate, authorize("delivery"),
-    async (req, res, next) => {
-        try {
-            const orders = await Order.find({
-                acceptedByPartnerId: req.user._id,
-                status: { $in: ["READY_FOR_PICKUP", "OUT_FOR_DELIVERY"] },
-            }).sort({ updatedAt: -1 });
-            res.json({ ok: true, orders });
-        } catch (err) { next(err); }
-    }
-);
+
 
 // ── Multi-Drop Route Optimization (Nearest Next greedy TSP) ─────────────────
 router.get("/batch/:batchId/optimized-route",
