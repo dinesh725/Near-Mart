@@ -437,11 +437,14 @@ router.post("/send-email-verification", authenticate,
 
             const verifyUrl = `${config.corsOrigin}/verify-email?token=${token}`;
 
-            // Try sending via EmailService
+            // Try sending via EmailService (with 12s race timeout)
             try {
-                await EmailService.sendVerificationEmail(req.user.email, token, req.user.name);
+                await Promise.race([
+                    EmailService.sendVerificationEmail(req.user.email, token, req.user.name),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error("SMTP timeout")), 12000)),
+                ]);
             } catch (err) {
-                logger.warn(`Failed to send verification email. Dev token fallback: ${verifyUrl}`);
+                logger.warn(`Failed to send verification email (${err.message}). Dev token fallback: ${verifyUrl}`);
                 console.log(`\n  Email verification URL for ${req.user.email}: ${verifyUrl}\n`);
             }
 

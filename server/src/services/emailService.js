@@ -12,6 +12,10 @@ class EmailService {
                 user: config.smtp.user,
                 pass: config.smtp.pass,
             },
+            connectionTimeout: 10000, // 10s connection timeout
+            greetingTimeout: 10000,   // 10s greeting timeout
+            socketTimeout: 15000,     // 15s socket timeout
+            tls: { rejectUnauthorized: false }, // allow self-signed certs on cloud
         });
 
         this.from = process.env.EMAIL_FROM || "noreply@nearmart.local";
