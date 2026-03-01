@@ -1,8 +1,7 @@
 import React, { memo, useState } from "react";
 import { T } from "../../theme/theme";
-import { fmt, fmtFull } from "../../utils/helpers";
 import { SUPPLIERS } from "../../data/mockData";
-import { SupplierAvatar, Stars, TierBadge, StatusBadge, Sparkline, DonutRing } from "../../components/ScmComponents";
+import { SupplierAvatar, Stars, TierBadge, StatusBadge, DonutRing } from "../../components/ScmComponents";
 
 export const SupplierManagement = memo(() => {
     const [selId, setSelId] = useState(SUPPLIERS[0].id);

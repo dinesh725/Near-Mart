@@ -3,7 +3,6 @@ import { P } from "../../theme/theme";
 import { useAuth } from "../../auth/AuthContext";
 import { useStore } from "../../context/GlobalStore";
 import { fmtFull } from "../../utils/helpers";
-import { PSparkline } from "../../components/PlatformComponents";
 import { ImagePicker } from "../../components/ImagePicker";
 
 function Toast({ msg, icon, onDone }) {
@@ -138,7 +137,7 @@ export function SellerDashboard({ activeTab }) {
                     const token = localStorage.getItem("nm_access_token");
                     if (token) {
                         try {
-                            const updateRes = await fetch(`${process.env.REACT_APP_API_URL || "http://localhost:5000/api"}/auth/location`, {
+                            await fetch(`${process.env.REACT_APP_API_URL || "http://localhost:5000/api"}/auth/location`, {
                                 method: "PATCH",
                                 headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
                                 body: JSON.stringify(newLoc)

@@ -232,15 +232,16 @@ const start = async () => {
             });
         });
 
-        server.listen(config.port, () => {
-            logger.info(`🚀 NearMart API running on port ${config.port}`);
+        const HOST = "0.0.0.0"; // Required for Render, Railway, etc.
+        server.listen(config.port, HOST, () => {
+            logger.info(`🚀 NearMart API running on ${HOST}:${config.port}`);
             logger.info(`✅ HTTP & WebSocket Server running on port ${config.port} in ${process.env.NODE_ENV || "development"} mode`);
 
             // Start background logistics intelligence
             startCronJobs(app);
             logger.info(`   Environment: ${config.nodeEnv}`);
             logger.info(`   CORS origin: ${config.corsOrigin}`);
-            logger.info(`   Health check: http://localhost:${config.port}/api/health`);
+            logger.info(`   Health check: http://${HOST}:${config.port}/api/health`);
         });
     } catch (err) {
         logger.error("Failed to start server", { error: err.message });

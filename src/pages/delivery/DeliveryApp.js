@@ -130,7 +130,8 @@ export function DeliveryApp({ activeTab }) {
             socket.off("orderNearbyAvailable", handleNewTask);
             socket.off("orderRemovedFromQueue", handleRemoveTask);
         };
-    }, [stopTracking, liveLocation]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [stopTracking, liveLocation, fetchAvailableTasks]);
 
     // Join order room when active order changes
     useEffect(() => {

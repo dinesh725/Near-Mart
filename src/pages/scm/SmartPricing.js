@@ -1,6 +1,5 @@
 import React, { memo, useState } from "react";
-import { T } from "../../theme/theme";
-import { fmt, fmtFull } from "../../utils/helpers";
+import { fmt } from "../../utils/helpers";
 import { useNearMart } from "../../context/NearMartContext";
 
 export const SmartPricing = memo(() => {

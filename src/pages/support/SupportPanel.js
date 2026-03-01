@@ -27,8 +27,9 @@ export function SupportPanel({ activeTab }) {
     const activeTicket = tickets.find(t => t.id === selectedId);
     const messages = chats[selectedId] || [];
     const relatedOrder = orders.find(o => o.id === activeTicket?.orderId);
+    const messagesLen = messages.length;
 
-    useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
+    useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messagesLen]);
 
     const send = () => {
         if (!input.trim() || !selectedId) return;

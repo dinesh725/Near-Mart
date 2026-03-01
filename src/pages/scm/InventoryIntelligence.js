@@ -1,6 +1,6 @@
 import React, { memo, useState } from "react";
 import { T } from "../../theme/theme";
-import { fmt, fmtFull } from "../../utils/helpers";
+import { fmtFull } from "../../utils/helpers";
 import { useNearMart } from "../../context/NearMartContext";
 import { SUPPLIERS } from "../../data/mockData";
 
