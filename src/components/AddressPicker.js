@@ -134,11 +134,12 @@ export function AddressPicker({ value, onSelect, onClose }) {
             position: "fixed", inset: 0, zIndex: "var(--z-modal, 9000)",
             background: "rgba(0,0,0,0.6)", display: "flex", flexDirection: "column",
             justifyContent: "flex-end", alignItems: "center",
+            paddingBottom: "80px", /* Keep modal above the floating bottom nav bar */
         }} onClick={onClose}>
             <div style={{
                 background: P.bg, borderTopLeftRadius: 24, borderTopRightRadius: 24,
                 width: "100%", maxWidth: 560,
-                height: "auto", maxHeight: "calc(100vh - 20px)",
+                height: "auto", maxHeight: "calc(100vh - 100px)", /* Account for the 80px bottom padding + 20px top gap */
                 display: "grid", gridTemplateRows: "auto 1fr auto", /* CRITICAL: Header, Scrollable Content, Footer */
                 boxShadow: "0 -10px 50px rgba(0,0,0,0.5)",
             }} onClick={e => e.stopPropagation()}>
