@@ -20,7 +20,9 @@ function Toast({ msg, icon, onDone }) {
 export function DeliveryApp({ activeTab }) {
     const { user } = useAuth();
     const { orders, startDelivery, markDelivered } = useStore();
-    const [online, setOnline] = useState(false);
+    const [online, setOnline] = useState(() => {
+        try { return sessionStorage.getItem("nm_delivery_online") === "true"; } catch { return false; }
+    });
     const [searching, setSearching] = useState(false);
     const [activeOrder, setActiveOrder] = useState(null);
     const [availableOrders, setAvailableOrders] = useState([]);
@@ -50,6 +52,7 @@ export function DeliveryApp({ activeTab }) {
         }).then(res => res.json()).then(data => {
             if (data.ok && data.orders?.length > 0) {
                 setActiveOrder(data.orders[0]); // Restore UI tracking state
+                setOnline(true); // Auto go online when there's an active delivery
             }
         }).catch(err => console.error("Lifecycle restore failed", err));
     }, []);
@@ -159,6 +162,11 @@ export function DeliveryApp({ activeTab }) {
         }
     }, [currentOrder]);
 
+
+    // Persist online state to sessionStorage
+    useEffect(() => {
+        try { sessionStorage.setItem("nm_delivery_online", online ? "true" : "false"); } catch { /* ignore */ }
+    }, [online]);
 
     const handleGoOnline = () => {
         if (online) { setOnline(false); setToast({ msg: "You're now offline 🌙", icon: "😴" }); return; }
