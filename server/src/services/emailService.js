@@ -1,24 +1,12 @@
-const nodemailer = require("nodemailer");
+const { Resend } = require("resend");
 const config = require("../config");
 const logger = require("../utils/logger");
 
 class EmailService {
     constructor() {
-        this.transporter = nodemailer.createTransport({
-            host: config.smtp.host,
-            port: config.smtp.port,
-            secure: config.smtp.port === 587, // true for 587, false for other ports
-            auth: {
-                user: config.smtp.user,
-                pass: config.smtp.pass,
-            },
-            connectionTimeout: 10000, // 10s connection timeout
-            greetingTimeout: 10000,   // 10s greeting timeout
-            socketTimeout: 15000,     // 15s socket timeout
-            tls: { rejectUnauthorized: false }, // allow self-signed certs on cloud
-        });
-
-        this.from = process.env.EMAIL_FROM || "noreply@nearmart.local";
+        this.resend = config.resend.apiKey ? new Resend(config.resend.apiKey) : null;
+        // Resend requires a verified domain. Use onboarding@resend.dev for testing.
+        this.from = process.env.EMAIL_FROM || "onboarding@resend.dev";
     }
 
     getFrontendUrl() {
@@ -26,8 +14,8 @@ class EmailService {
     }
 
     async sendVerificationEmail(to, actionUrl, name) {
-        if (!config.smtp.host || config.smtp.host === "smtp.mailtrap.io") {
-            logger.warn(`[EmailService] SMTP not configured. Skipping verification email to ${to}. URL: ${actionUrl}`);
+        if (!this.resend) {
+            logger.warn(`[EmailService] RESEND_API_KEY not configured. Skipping verification email to ${to}. URL: ${actionUrl}`);
             return true;
         }
 
@@ -45,23 +33,26 @@ class EmailService {
         `;
 
         try {
-            await this.transporter.sendMail({
-                from: `"NearMart" <${this.from}>`,
-                to,
+            const { data, error } = await this.resend.emails.send({
+                from: `NearMart <${this.from}>`,
+                to: [to],
                 subject: "Verify your Email — NearMart",
                 html,
             });
-            logger.info(`[EmailService] Verification email sent to ${to}`);
+
+            if (error) throw error;
+
+            logger.info(`[EmailService] Verification email sent to ${to} (ID: ${data?.id})`);
             return true;
         } catch (error) {
             logger.error(`[EmailService] Failed to send email to ${to}:`, error);
-            throw new Error(error.code === 'ETIMEDOUT' ? 'SMTP Connection Timeout - Mail server unreachable' : 'Failed to send email');
+            throw new Error(error.message || 'Failed to send email via Resend');
         }
     }
 
     async sendPasswordResetEmail(to, actionUrl, name) {
-        if (!config.smtp.host || config.smtp.host === "smtp.mailtrap.io") {
-            logger.warn(`[EmailService] SMTP not configured. Skipping reset email to ${to}. URL: ${actionUrl}`);
+        if (!this.resend) {
+            logger.warn(`[EmailService] RESEND_API_KEY not configured. Skipping reset email to ${to}. URL: ${actionUrl}`);
             return true;
         }
 
@@ -79,17 +70,20 @@ class EmailService {
         `;
 
         try {
-            await this.transporter.sendMail({
-                from: `"NearMart" <${this.from}>`,
-                to,
+            const { data, error } = await this.resend.emails.send({
+                from: `NearMart <${this.from}>`,
+                to: [to],
                 subject: "Reset your Password — NearMart",
                 html,
             });
-            logger.info(`[EmailService] Password reset email sent to ${to}`);
+
+            if (error) throw error;
+
+            logger.info(`[EmailService] Password reset email sent to ${to} (ID: ${data?.id})`);
             return true;
         } catch (error) {
             logger.error(`[EmailService] Failed to send password reset to ${to}:`, error);
-            throw new Error(error.code === 'ETIMEDOUT' ? 'SMTP Connection Timeout - Mail server unreachable' : 'Failed to send email');
+            throw new Error(error.message || 'Failed to send email via Resend');
         }
     }
 }
