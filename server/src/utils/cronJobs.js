@@ -1,8 +1,8 @@
 const cron = require("node-cron");
 const Order = require("../models/Order");
 const User = require("../models/User");
-const { notify } = require("../services/notificationService");
 const logger = require("./logger");
+const mongoose = require("mongoose");
 
 const startCronJobs = (app) => {
     // ── Every 1 Minute: Rider Timeout, Radius Expansion, Auto-Offline, Escalation ──
@@ -102,6 +102,26 @@ const startCronJobs = (app) => {
                 if (io) io.to(`delivery_${rider._id}`).emit("forceOffline", { reason: "Inactivity timeout (15 min)" });
             }
 
+            // ── 5. Clean up Abandoned PENDING_PAYMENT Checkouts ───────────────
+            const abandonedOrders = await Order.find({
+                status: "PENDING_PAYMENT",
+                createdAt: { $lt: fifteenMinsAgo }
+            });
+
+            if (abandonedOrders.length > 0) {
+                logger.info(`[Auto-Cleanup] Found ${abandonedOrders.length} abandoned orders. Releasing stock...`);
+                for (const order of abandonedOrders) {
+                    const Product = mongoose.model("Product");
+                    for (const item of order.items) {
+                        await Product.findByIdAndUpdate(item.productId, { $inc: { stock: item.qty } });
+                    }
+                    order.status = "CANCELLED";
+                    order.paymentStatus = "failed";
+                    order.cancelReason = "Payment timeout (abandoned cart)";
+                    order.events.push({ status: "CANCELLED", note: "Payment abandoned after 15 minutes, reserved stock released" });
+                    await order.save();
+                }
+            }
         } catch (error) {
             logger.error("[Cron Error] Background job failed: " + (error.stack || error.message || JSON.stringify(error)));
         }

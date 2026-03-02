@@ -46,10 +46,11 @@ export function CheckoutFlow({ onClose, onSuccess }) {
         }).filter(Boolean),
         [cart, products]);
 
+    const sellerIds = new Set(cartItems.map(item => item.sellerId || "DEFAULT_SELLER"));
+    const sellerCount = sellerIds.size;
+
     const subtotal = cartTotal;
-    // Delivery fee depends on distance — will be recalculated by backend
-    // Show estimate here, actual comes from backend response
-    const estDeliveryFee = 30;
+    const estDeliveryFee = 30 * sellerCount; // ₹30 per distinct seller store
     const platformFee = 5;
     const discount = subtotal > 200 ? Math.round(subtotal * 0.02) : 0;
     const estimatedTotal = subtotal + estDeliveryFee + platformFee - discount;
@@ -92,7 +93,7 @@ export function CheckoutFlow({ onClose, onSuccess }) {
             const token = localStorage.getItem("nm_access_token");
             const headers = { "Content-Type": "application/json", "Authorization": `Bearer ${token}` };
 
-            let backendOrder = null;
+            let backendOrders = null;
 
             // ── Path 1: Try full Razorpay checkout ────────────────────────────
             try {
@@ -112,25 +113,47 @@ export function CheckoutFlow({ onClose, onSuccess }) {
                 });
                 const checkoutData = await checkoutRes.json();
 
-                if (checkoutData.ok && checkoutData.needsGatewayPayment) {
-                    setProcessingMsg("Opening payment gateway...");
-                    const loaded = await loadRazorpayScript();
-                    if (loaded && window.Razorpay) {
-                        const rzOptions = {
-                            key: checkoutData.razorpayKeyId,
-                            amount: checkoutData.gatewayAmount,
-                            currency: "INR",
-                            name: "NearMart",
-                            description: "Order Payment",
-                            order_id: checkoutData.razorpayOrderId,
-                            prefill: { name: user?.name || "", email: user?.email || "", contact: user?.phone || "" },
-                            notes: { orderId: checkoutData.order?._id || "" },
-                            theme: { color: "#6366F1" },
-                        };
-                        setProcessingMsg("Complete payment in the Razorpay window...");
-                        const rzResponse = await openRazorpayCheckout(rzOptions);
-                        setProcessingMsg("Verifying payment...");
-                        await verifyPayment(rzResponse);
+                if (checkoutData.ok) {
+                    if (checkoutData.needsGatewayPayment) {
+                        setProcessingMsg("Opening payment gateway...");
+                        const loaded = await loadRazorpayScript();
+                        if (loaded && window.Razorpay) {
+                            const rzOptions = {
+                                key: checkoutData.razorpayKeyId,
+                                amount: checkoutData.gatewayAmount,
+                                currency: "INR",
+                                name: "NearMart",
+                                description: "Order Payment",
+                                order_id: checkoutData.razorpayOrderId,
+                                prefill: { name: user?.name || "", email: user?.email || "", contact: user?.phone || "" },
+                                notes: { paymentGroupId: checkoutData.orders?.[0]?.paymentGroupId || "" },
+                                theme: { color: "#6366F1" },
+                            };
+                            setProcessingMsg("Complete payment in the Razorpay window...");
+                            const rzResponse = await openRazorpayCheckout(rzOptions);
+                            setProcessingMsg("Verifying payment...");
+                            const verifyData = await verifyPayment(rzResponse);
+                            backendOrders = verifyData.orders;
+
+                            // Check if webhook delayed for hybrid/razorpay confirmation
+                            if (backendOrders && backendOrders.length > 0 && backendOrders[0].status === "PENDING_PAYMENT") {
+                                setProcessingMsg("Waiting for payment confirmation...");
+                                let attempts = 0;
+                                while (attempts < 5) {
+                                    await new Promise(r => setTimeout(r, 2000));
+                                    const pollRes = await fetch(`${API_BASE}/orders/${backendOrders[0]._id}`, { headers });
+                                    const pollData = await pollRes.json();
+                                    if (pollData.ok && pollData.order.status !== "PENDING_PAYMENT") {
+                                        backendOrders = [pollData.order]; // Simplified, would need robust group fetching
+                                        break;
+                                    }
+                                    attempts++;
+                                }
+                            }
+                        }
+                    } else {
+                        // Fully paid by Wallet
+                        backendOrders = checkoutData.orders;
                     }
                 }
             } catch (payErr) {
@@ -138,7 +161,7 @@ export function CheckoutFlow({ onClose, onSuccess }) {
             }
 
             // ── Path 2: Create order directly via backend ────────────────────
-            if (!backendOrder) {
+            if (!backendOrders) {
                 try {
                     if (!token) throw new Error("Local session — skipping backend order creation");
                     setProcessingMsg("Finalizing order...");
@@ -152,14 +175,16 @@ export function CheckoutFlow({ onClose, onSuccess }) {
                         }),
                     });
                     const orderData = await orderRes.json();
-                    if (orderData.ok) backendOrder = orderData.order;
+                    if (orderData.ok) {
+                        backendOrders = orderData.orders || [orderData.order];
+                    }
                 } catch (apiErr) {
                     console.warn("Backend order creation failed:", apiErr.message);
                 }
             }
 
             // ── Path 3: Local-only fallback (GlobalStore) ────────────────────
-            if (!backendOrder) {
+            if (!backendOrders) {
                 setProcessingMsg("Creating local order...");
                 await import("../../context/GlobalStore"); // ensure module loaded
                 // Use the placeOrder already available from useStore
@@ -169,22 +194,25 @@ export function CheckoutFlow({ onClose, onSuccess }) {
                     paymentMethod
                 );
                 if (localOrder) {
-                    backendOrder = localOrder;
+                    backendOrders = [localOrder];
                 } else {
                     throw new Error("Order creation failed — cart may be empty or items out of stock");
                 }
             }
 
             // ── Sync into frontend state ─────────────────────────────────────
-            if (setBackendOrder && backendOrder._id) setBackendOrder(backendOrder);
+            if (setBackendOrder && backendOrders[0]?._id) setBackendOrder(backendOrders[0]);
             clearCart();
+
+            const sumTotal = backendOrders.reduce((sum, o) => sum + o.total, 0);
 
             setResult({
                 success: true,
-                order: backendOrder,
+                order: backendOrders[0], // fallback legacy hook
+                orders: backendOrders,
                 message: paymentMethod === "wallet"
-                    ? `₹${backendOrder.total} deducted from wallet`
-                    : `₹${backendOrder.total} paid successfully`,
+                    ? `₹${sumTotal} deducted from wallet`
+                    : `₹${sumTotal} paid successfully`,
                 paymentMethod,
             });
 
@@ -203,7 +231,7 @@ export function CheckoutFlow({ onClose, onSuccess }) {
     const handleDone = () => {
         if (result?.success) {
             showToast("Order placed! 🎉", "success", "✅");
-            onSuccess?.(result.order);
+            onSuccess?.(result.orders || [result.order]);
         } else if (result?.canRetry) {
             setStep(2); setResult(null); return;
         }
@@ -367,19 +395,34 @@ export function CheckoutFlow({ onClose, onSuccess }) {
             <div style={{ fontSize: 64, marginBottom: 16 }}>{result?.success ? "✅" : "❌"}</div>
             <div style={{ fontWeight: 800, fontSize: 22, marginBottom: 8 }}>{result?.success ? "Order Confirmed!" : "Payment Failed"}</div>
             <div style={{ fontSize: 14, color: P.textMuted, marginBottom: 6 }}>{result?.message}</div>
-            {result?.success && result?.order && (
+
+            {result?.success && result?.orders && (
                 <div style={{ background: P.surface, borderRadius: 14, padding: "16px 20px", border: `1px solid ${P.success}44`, marginTop: 16, textAlign: "left" }}>
-                    <div style={{ fontSize: 12, color: P.textMuted, marginBottom: 6 }}>Order ID</div>
-                    <div style={{ fontWeight: 700, fontSize: 14, fontFamily: "monospace" }}>{result.order._id || result.order.id}</div>
-                    <div style={{ fontSize: 12, color: P.textMuted, marginTop: 10, marginBottom: 4 }}>Total Paid</div>
-                    <div style={{ fontWeight: 800, fontSize: 20, color: P.success }}>₹{result.order.total || estimatedTotal}</div>
-                    {result.order.estimatedArrivalTime && (
+                    <div style={{ fontSize: 12, color: P.textMuted, marginBottom: 6 }}>
+                        {result.orders.length > 1 ? `Split into ${result.orders.length} Deliveries` : "Order ID"}
+                    </div>
+                    {result.orders.map((o, idx) => (
+                        <div key={idx} style={{
+                            fontWeight: 600, fontSize: 13, fontFamily: "monospace",
+                            background: `${P.success}15`, padding: "4px 8px", borderRadius: 6, marginBottom: 4, display: "inline-block", marginRight: 8
+                        }}>
+                            {o._id || o.id}
+                        </div>
+                    ))}
+
+                    <div style={{ fontSize: 12, color: P.textMuted, marginTop: 12, marginBottom: 4 }}>Grand Total Paid</div>
+                    <div style={{ fontWeight: 800, fontSize: 20, color: P.success }}>
+                        ₹{result.orders.reduce((sum, o) => sum + (o.total || 0), 0) || estimatedTotal}
+                    </div>
+
+                    {result.orders[0]?.estimatedArrivalTime && (
                         <div style={{ fontSize: 12, color: P.textMuted, marginTop: 8 }}>
-                            🕐 ETA: {new Date(result.order.estimatedArrivalTime).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
+                            🕐 First ETA: {new Date(result.orders[0].estimatedArrivalTime).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
                         </div>
                     )}
                 </div>
             )}
+
             <button className="p-btn p-btn-primary w-100" style={{ marginTop: 20, minHeight: 50, fontSize: 16 }} onClick={handleDone}>
                 {result?.success ? "Track Order →" : "Try Again"}
             </button>
@@ -393,8 +436,8 @@ export function CheckoutFlow({ onClose, onSuccess }) {
         <div style={{ background: compact ? "transparent" : P.card, border: compact ? "none" : `1px solid ${P.primary}33`, borderRadius: 14, padding: compact ? "4px 0" : "14px 16px" }}>
             {!compact && <div style={{ fontSize: 12, fontWeight: 700, color: P.textMuted, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 10 }}>Bill Details</div>}
             <Row label="Item Total" value={`₹${subtotal}`} />
-            <Row label="Delivery Fee" value={`₹${estDeliveryFee}`} muted />
-            <Row label="Platform Fee" value="₹5" muted />
+            <Row label={`Delivery Fee ${sellerCount > 1 ? `(${sellerCount} sellers)` : ""}`} value={`₹${estDeliveryFee}`} muted />
+            <Row label="Platform Fee" value={`₹${platformFee}`} muted />
             {discount > 0 && <Row label="💰 Savings" value={`−₹${discount}`} color={P.success} />}
             <div style={{ height: 1, background: P.border, margin: "8px 0" }} />
             <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 800, fontSize: compact ? 16 : 18 }}>

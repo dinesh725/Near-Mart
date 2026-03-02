@@ -383,6 +383,69 @@ router.patch("/:id/accept",
     }
 );
 
+// ── Reject Order & Partial Refund (Seller) ────────────────────────────────────
+router.patch("/:id/reject",
+    authenticate, authorize("seller", "admin"),
+    async (req, res, next) => {
+        try {
+            const order = await Order.findById(req.params.id);
+            if (!order) throw new NotFound("Order not found");
+
+            // Allow rejection early on before it's shipped
+            if (["OUT_FOR_DELIVERY", "DELIVERED", "CANCELLED", "REJECTED"].includes(order.status)) {
+                throw new BadRequest(`Cannot reject order from status: ${order.status}`);
+            }
+
+            // Perform Razorpay Partial Refund if already paid
+            if (order.paymentStatus === "paid" && order.paymentId && order.paymentId.startsWith("pay_")) {
+                const { refundPayment } = require("../services/paymentService");
+                try {
+                    // order.total cleanly holds only THIS seller's sub-order (subtotal + tax + delivery - discountShare)
+                    await refundPayment(order.paymentId, order.total);
+                    order.paymentStatus = "refunded";
+                    order.events.push({ status: "REJECTED", note: "Razorpay partial refund automated successfully" });
+                } catch (refundError) {
+                    const errorMsg = refundError.message || "Unknown gateway error";
+                    order.events.push({ status: "REJECTED", note: "Refund FAILED: " + errorMsg + " — Queued for Admin Retry" });
+                    const { notify } = require("../services/notificationService");
+                    await notify("admin", `🚨 Refund Failed for Order ${order._id} (₹${order.total}): ${errorMsg}`, "alert");
+                }
+            } else if (order.paymentStatus === "paid" && order.paymentId && order.paymentId.startsWith("wallet_")) {
+                // Wallet refund
+                const User = require("../models/User");
+                const WalletTransaction = require("../models/WalletTransaction");
+                const user = await User.findById(order.customerId);
+                const updatedUser = await User.findByIdAndUpdate(order.customerId, { $inc: { walletBalance: order.total } }, { new: true });
+                await WalletTransaction.create({
+                    userId: order.customerId, type: "credit", amount: order.total,
+                    category: "refund", balanceBefore: user.walletBalance, balanceAfter: updatedUser.walletBalance,
+                    note: `Refund for Rejected Order ${order._id}`
+                });
+                order.paymentStatus = "refunded";
+                order.events.push({ status: "REJECTED", note: "Wallet refunded successfully" });
+            }
+
+            // Release inventory
+            const Product = require("../models/Product");
+            for (const item of order.items) {
+                await Product.findByIdAndUpdate(item.productId, { $inc: { stock: item.qty } });
+            }
+
+            order.status = "REJECTED";
+            order.cancelReason = req.body.reason || "Seller rejected the order (items unavailable).";
+            order.events.push({ status: "REJECTED", note: order.cancelReason });
+            await order.save();
+
+            const io = req.app.get("io");
+            if (io) io.to(`order_${order._id}`).emit("deliveryStatusUpdate", { orderId: order._id, status: "REJECTED" });
+
+            const { notify } = require("../services/notificationService");
+            await notify("customer", `Order issue: Store rejected some items. Refund initiated!`, "alert", order.customerId);
+
+            res.json({ ok: true, order });
+        } catch (err) { next(err); }
+    }
+);
 
 // ── Ready for Pickup (seller) ─────────────────────────────────────────────────
 router.patch("/:id/ready",

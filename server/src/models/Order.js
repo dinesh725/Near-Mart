@@ -1,15 +1,16 @@
 const mongoose = require("mongoose");
 
-const ORDER_STATUSES = ["PENDING", "CONFIRMED", "PREPARING", "READY_FOR_PICKUP", "OUT_FOR_DELIVERY", "DELIVERED", "CANCELLED"];
+const ORDER_STATUSES = ["PENDING_PAYMENT", "CONFIRMED", "PREPARING", "READY_FOR_PICKUP", "OUT_FOR_DELIVERY", "DELIVERED", "CANCELLED", "REJECTED"];
 
 const VALID_TRANSITIONS = {
-    PENDING: ["CONFIRMED", "CANCELLED"],
-    CONFIRMED: ["PREPARING", "CANCELLED"],
+    PENDING_PAYMENT: ["CONFIRMED", "CANCELLED"],
+    CONFIRMED: ["PREPARING", "CANCELLED", "REJECTED"],
     PREPARING: ["READY_FOR_PICKUP", "CANCELLED"],
     READY_FOR_PICKUP: ["OUT_FOR_DELIVERY"],
     OUT_FOR_DELIVERY: ["DELIVERED"],
     DELIVERED: [],
     CANCELLED: [],
+    REJECTED: [],
 };
 
 const orderItemSchema = new mongoose.Schema({
@@ -34,10 +35,24 @@ const orderSchema = new mongoose.Schema({
     deliveryFee: { type: Number, default: 30 },
     platformFee: { type: Number, default: 5 },
     discount: { type: Number, default: 0 },
+    discountShare: { type: Number, default: 0 },
+    taxAmount: { type: Number, default: 0 },
+    cgst: { type: Number, default: 0 },
+    sgst: { type: Number, default: 0 },
     total: { type: Number, required: true, min: 0 },
-    status: { type: String, enum: ORDER_STATUSES, default: "PENDING", index: true },
+    sellerSubtotal: { type: Number, default: 0 },
+    platformCommission: { type: Number, default: 0 },
+    sellerNetEarnings: { type: Number, default: 0 },
+    distanceSnapshot: { type: Number, default: 0 }, // Store fixed distance parameter
+    events: [{
+        status: { type: String, enum: ORDER_STATUSES },
+        timestamp: { type: Date, default: Date.now },
+        note: { type: String }
+    }],
+    status: { type: String, enum: ORDER_STATUSES, default: "PENDING_PAYMENT", index: true },
     paymentStatus: { type: String, enum: ["pending", "paid", "failed", "refunded"], default: "pending" },
     paymentId: { type: String },
+    paymentGroupId: { type: String, index: true }, // Ties multiple sub-orders together for a single checkout
     razorpayOrderId: { type: String },
     address: { type: String, default: "" },
     pickupLocation: {

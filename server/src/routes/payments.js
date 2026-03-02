@@ -30,52 +30,99 @@ router.post("/checkout",
         try {
             const { items, address, paymentMethod } = req.body;
 
-            // 1. Validate products & stock
-            const orderItems = [];
+            // 1. Validate & Cluster items by Seller
+            const sellerGroups = {};
+            let grandSubtotal = 0;
+
             for (const item of items) {
                 const product = await Product.findById(item.productId);
                 if (!product) throw new BadRequest(`Product ${item.productId} not found`);
-                if (product.stock < item.qty)
+                if (product.stock < item.qty) {
                     throw new BadRequest(`Insufficient stock for ${product.name} (available: ${product.stock})`);
-                orderItems.push({
-                    productId: product._id,
-                    name: product.name,
-                    emoji: product.emoji,
-                    qty: item.qty,
-                    price: product.sellingPrice,
+                }
+
+                const sId = product.sellerId ? product.sellerId.toString() : "DEFAULT_SELLER";
+                if (!sellerGroups[sId]) {
+                    sellerGroups[sId] = { sellerId: product.sellerId, items: [], subtotal: 0 };
+                }
+
+                const itemTotal = product.sellingPrice * item.qty;
+                sellerGroups[sId].items.push({
+                    productId: product._id, name: product.name,
+                    emoji: product.emoji, qty: item.qty, price: product.sellingPrice,
                 });
+                sellerGroups[sId].subtotal += itemTotal;
+                grandSubtotal += itemTotal;
             }
 
-            const subtotal = orderItems.reduce((sum, i) => sum + i.price * i.qty, 0);
-            const deliveryFee = 30;
-            const platformFee = 5;
-            const discount = subtotal > 200 ? Math.round(subtotal * 0.02) : 0;
-            const total = subtotal + deliveryFee + platformFee - discount;
+            const sellerCount = Object.keys(sellerGroups).length;
+            const deliveryFeePerSeller = 30; // ₹30 per distinct seller
+            const deliveryFeeTotal = deliveryFeePerSeller * sellerCount;
+            const platformFeeTotal = 5;
+            const discountTotal = grandSubtotal > 200 ? Math.round(grandSubtotal * 0.02) : 0;
+            const grandTotal = grandSubtotal + deliveryFeeTotal + platformFeeTotal - discountTotal;
 
-            // 2. Create order (paymentStatus = pending)
-            const order = await Order.create({
-                customerId: req.user._id,
-                customerName: req.user.name,
-                items: orderItems,
-                total,
-                address,
-                paymentMethod,
-                paymentStatus: "pending",
-            });
+            const platformFeePerSeller = parseFloat((platformFeeTotal / sellerCount).toFixed(2));
+            const discountPerSeller = Math.floor(discountTotal / sellerCount);
 
-            // 3. Idempotency key
-            const idempotencyKey = `checkout_${order._id}`;
+            console.log("Incoming checkout headers:", Object.keys(req.headers));
+            console.log("Extracted Idemp-Key:", req.headers["idempotency-key"]);
+            const idempotencyKey = req.headers["idempotency-key"] || `chk_${Date.now()}_${crypto.randomBytes(4).toString("hex")}`;
+            const paymentGroupId = `PG_${crypto.randomBytes(8).toString("hex")}`;
+
             const existingTxn = await Transaction.findOne({ idempotencyKey });
             if (existingTxn && existingTxn.status === "completed") {
-                throw new Conflict("This order has already been paid");
+                throw new Conflict("This order group has already been paid");
+            }
+            if (existingTxn && existingTxn.status === "pending") {
+                throw new Conflict("A checkout with this idempotency key is already pending. Please complete or cancel it.");
             }
 
-            // 4. Deduct stock
-            for (const item of orderItems) {
+            // 2. Atomic Stock Decrement (Reservation)
+            for (const item of items) {
                 await Product.findByIdAndUpdate(item.productId, { $inc: { stock: -item.qty } });
             }
 
-            // 5. Process payment based on method
+            // 3. Create N sub-orders (PENDING_PAYMENT)
+            let createdOrders = [];
+            for (const sId of Object.keys(sellerGroups)) {
+                const group = sellerGroups[sId];
+                const groupTotal = group.subtotal + deliveryFeePerSeller + platformFeePerSeller - discountPerSeller;
+
+                const sellerSubtotal = group.subtotal;
+                const platformCommission = platformFeePerSeller;
+                const sellerNetEarnings = parseFloat((sellerSubtotal - platformCommission).toFixed(2));
+                const taxAmount = parseFloat((sellerSubtotal * 0.05).toFixed(2)); // generic 5% total GST
+                const cgst = parseFloat((taxAmount / 2).toFixed(2));
+                const sgst = parseFloat((taxAmount / 2).toFixed(2));
+
+                const order = await Order.create({
+                    customerId: req.user._id,
+                    customerName: req.user.name,
+                    sellerId: group.sellerId,
+                    items: group.items,
+                    subtotal: group.subtotal,
+                    deliveryFee: deliveryFeePerSeller,
+                    platformFee: platformFeePerSeller,
+                    discountShare: discountPerSeller,
+                    sellerSubtotal,
+                    platformCommission,
+                    sellerNetEarnings,
+                    taxAmount,
+                    cgst,
+                    sgst,
+                    total: groupTotal,
+                    address,
+                    paymentMethod,
+                    paymentGroupId,
+                    status: "PENDING_PAYMENT",
+                    paymentStatus: "pending",
+                    events: [{ status: "PENDING_PAYMENT", note: "Order initiated, awaiting payment" }]
+                });
+                createdOrders.push(order);
+            }
+
+            // 4. Process payment based on method
             let walletDeducted = 0;
             let gatewayAmount = 0;
             let razorpayOrderId = null;
@@ -83,97 +130,94 @@ router.post("/checkout",
             const user = await User.findById(req.user._id);
 
             if (paymentMethod === "wallet") {
-                // Full wallet payment
-                if (user.walletBalance < total) {
-                    throw new BadRequest(`Insufficient wallet balance (₹${user.walletBalance}). Need ₹${total}`);
+                if (user.walletBalance < grandTotal) {
+                    throw new BadRequest(`Insufficient wallet balance (₹${user.walletBalance}). Need ₹${grandTotal}`);
                 }
-                walletDeducted = total;
+                walletDeducted = grandTotal;
                 const updatedUser = await User.findByIdAndUpdate(
-                    req.user._id,
-                    { $inc: { walletBalance: -total, totalOrders: 1 } },
-                    { new: true }
+                    req.user._id, { $inc: { walletBalance: -grandTotal, totalOrders: sellerCount } }, { new: true }
                 );
 
                 await WalletTransaction.create({
-                    userId: req.user._id, type: "debit", amount: total,
-                    category: "order_payment", orderId: order._id,
-                    balanceBefore: user.walletBalance,
-                    balanceAfter: updatedUser.walletBalance,
-                    note: `Payment for order ${order._id}`,
+                    userId: req.user._id, type: "debit", amount: grandTotal,
+                    category: "order_payment", // Add a group ID to WalletTxn if needed, but notes usually suffice
+                    balanceBefore: user.walletBalance, balanceAfter: updatedUser.walletBalance,
+                    note: `Payment for Order Group ${paymentGroupId}`,
+                    razorpayOrderId: paymentGroupId // Store group ID here for wallet
                 });
 
-                order.paymentStatus = "paid";
-                order.paymentId = `wallet_${Date.now()}`;
-                await order.save();
+                // Update all orders instantly
+                await Order.updateMany(
+                    { paymentGroupId, status: "PENDING_PAYMENT" },
+                    {
+                        $set: { status: "CONFIRMED", paymentStatus: "paid", paymentId: `wallet_${Date.now()}` },
+                        $push: { events: { status: "CONFIRMED", note: "Wallet payment successful" } }
+                    }
+                );
 
-                const revenue = distributeRevenue(total);
+                const revenue = distributeRevenue(grandTotal);
                 await Transaction.create({
-                    orderId: order._id, paymentId: order.paymentId,
-                    amount: total, type: "order_payment", method: "wallet",
-                    walletAmount: total, gatewayAmount: 0,
+                    orderId: null, // Unified transaction
+                    paymentId: paymentGroupId,
+                    amount: grandTotal, type: "order_payment", method: "wallet",
+                    walletAmount: grandTotal, gatewayAmount: 0,
                     ...revenue, status: "completed", idempotencyKey,
                 });
 
-                await notify("customer", `Order placed! ₹${total} paid from wallet`, "payment", req.user._id);
-                await notify("seller", `New order — ₹${total}`, "order");
+                await notify("customer", `Orders placed! ₹${grandTotal} paid from wallet`, "payment", req.user._id);
 
             } else if (paymentMethod === "razorpay") {
-                // Full gateway payment — order NOT confirmed until verify/webhook
-                gatewayAmount = total;
+                gatewayAmount = grandTotal;
                 needsGatewayPayment = true;
-                const rzOrder = await createRazorpayOrder(total, `order_${order._id}`, {
-                    orderId: order._id.toString(),
+                const rzOrder = await createRazorpayOrder(grandTotal, `group_${paymentGroupId}`, {
+                    paymentGroupId,
                     customerId: req.user._id.toString(),
                 });
                 razorpayOrderId = rzOrder.id;
-                order.razorpayOrderId = rzOrder.id;
-                await order.save();
+
+                // Attach RZ order ID to all sub-orders
+                await Order.updateMany({ paymentGroupId }, { razorpayOrderId: rzOrder.id });
 
                 await Transaction.create({
-                    orderId: order._id, amount: total,
+                    orderId: null, amount: grandTotal,
+                    paymentId: paymentGroupId,
                     type: "order_payment", method: "razorpay",
-                    walletAmount: 0, gatewayAmount: total,
+                    walletAmount: 0, gatewayAmount: grandTotal,
                     status: "pending", idempotencyKey,
                 });
 
             } else if (paymentMethod === "hybrid") {
-                // Wallet + gateway
-                walletDeducted = Math.min(user.walletBalance, total);
-                gatewayAmount = total - walletDeducted;
+                walletDeducted = Math.min(user.walletBalance, grandTotal);
+                gatewayAmount = grandTotal - walletDeducted;
 
+                // Handle wallet portion securely, same as above
                 if (walletDeducted > 0) {
                     const updatedUser = await User.findByIdAndUpdate(
-                        req.user._id,
-                        { $inc: { walletBalance: -walletDeducted } },
-                        { new: true }
+                        req.user._id, { $inc: { walletBalance: -walletDeducted } }, { new: true }
                     );
                     await WalletTransaction.create({
                         userId: req.user._id, type: "debit", amount: walletDeducted,
-                        category: "order_payment", orderId: order._id,
-                        balanceBefore: user.walletBalance,
+                        category: "order_payment", balanceBefore: user.walletBalance,
                         balanceAfter: updatedUser.walletBalance,
-                        note: `Partial payment for order ${order._id}`,
+                        note: `Partial payment for Group ${paymentGroupId}`,
+                        razorpayOrderId: paymentGroupId
                     });
                 }
 
                 if (gatewayAmount > 0) {
                     needsGatewayPayment = true;
-                    const rzOrder = await createRazorpayOrder(gatewayAmount, `order_${order._id}`, {
-                        orderId: order._id.toString(),
-                        walletDeducted: walletDeducted.toString(),
+                    const rzOrder = await createRazorpayOrder(gatewayAmount, `group_${paymentGroupId}`, {
+                        paymentGroupId, walletDeducted: walletDeducted.toString(),
                     });
                     razorpayOrderId = rzOrder.id;
-                    order.razorpayOrderId = rzOrder.id;
-                    await order.save();
+                    await Order.updateMany({ paymentGroupId }, { razorpayOrderId: rzOrder.id });
                 } else {
-                    order.paymentStatus = "paid";
-                    order.paymentId = `wallet_${Date.now()}`;
-                    await order.save();
-                    await User.findByIdAndUpdate(req.user._id, { $inc: { totalOrders: 1 } });
+                    await Order.updateMany({ paymentGroupId }, { status: "PENDING", paymentStatus: "paid", paymentId: `wallet_${Date.now()}` });
+                    await User.findByIdAndUpdate(req.user._id, { $inc: { totalOrders: sellerCount } });
                 }
 
                 await Transaction.create({
-                    orderId: order._id, amount: total,
+                    orderId: null, amount: grandTotal, paymentId: paymentGroupId,
                     type: "order_payment", method: "hybrid",
                     walletAmount: walletDeducted, gatewayAmount,
                     status: gatewayAmount > 0 ? "pending" : "completed",
@@ -181,32 +225,31 @@ router.post("/checkout",
                 });
 
                 if (!needsGatewayPayment) {
-                    const revenue = distributeRevenue(total);
+                    const revenue = distributeRevenue(grandTotal);
                     await Transaction.findOneAndUpdate({ idempotencyKey }, { ...revenue, status: "completed" });
-                    await notify("customer", `Order placed! ₹${total} paid (₹${walletDeducted} wallet)`, "payment", req.user._id);
-                    await notify("seller", `New order — ₹${total}`, "order");
+                    await notify("customer", `Orders placed! ₹${grandTotal} paid (₹${walletDeducted} wallet)`, "payment", req.user._id);
                 }
             }
 
-            // Low stock alerts
-            for (const item of orderItems) {
+            // Low stock alerts globally
+            for (const item of items) {
                 const p = await Product.findById(item.productId);
                 if (p && p.stock < 10) {
                     await notify("seller", `⚠ Low stock: ${p.name} (${p.stock} left)`, "alert");
                 }
             }
 
-            logger.info("Checkout processed", {
-                orderId: order._id.toString(), method: paymentMethod,
-                total, walletDeducted, gatewayAmount,
+            logger.info("Group checkout processed", {
+                paymentGroupId, method: paymentMethod, sellerCount,
+                grandTotal, walletDeducted, gatewayAmount,
             });
 
             res.status(201).json({
-                ok: true, order,
+                ok: true, orders: createdOrders, // RETURN ALL SUB-ORDERS
                 needsGatewayPayment,
                 razorpayOrderId,
                 razorpayKeyId: needsGatewayPayment ? config.razorpay.keyId : undefined,
-                gatewayAmount: gatewayAmount * 100, // paise for Razorpay SDK
+                gatewayAmount: gatewayAmount * 100,
                 walletDeducted,
             });
         } catch (err) { next(err); }
@@ -231,39 +274,52 @@ router.post("/verify",
                 throw new BadRequest("Invalid payment signature — possible tampering detected");
             }
 
-            const order = await Order.findOne({ razorpayOrderId: razorpay_order_id });
-            if (!order) throw new NotFound("Order not found");
+            const orders = await Order.find({ razorpayOrderId: razorpay_order_id });
+            if (!orders || orders.length === 0) throw new NotFound("Orders not found for payment");
 
             // Idempotency: already paid — safe to return success
-            if (order.paymentStatus === "paid") {
-                return res.json({ ok: true, message: "Already verified", order });
+            if (orders[0].paymentStatus === "paid") {
+                return res.json({ ok: true, message: "Already verified", orders });
             }
 
-            // Mark order as paid ONLY after signature verification
-            order.paymentStatus = "paid";
-            order.paymentId = razorpay_payment_id;
-            await order.save();
+            const paymentGroupId = orders[0].paymentGroupId;
 
-            await User.findByIdAndUpdate(order.customerId, { $inc: { totalOrders: 1 } });
-
-            // Revenue distribution + complete transaction
-            const revenue = distributeRevenue(order.total);
-            await Transaction.findOneAndUpdate(
-                { orderId: order._id, status: "pending" },
-                { paymentId: razorpay_payment_id, ...revenue, status: "completed" }
+            // Mark all grouped orders as paid and transition them strictly to CONFIRMED
+            await Order.updateMany(
+                { razorpayOrderId: razorpay_order_id, status: "PENDING_PAYMENT" },
+                {
+                    $set: { paymentStatus: "paid", paymentId: razorpay_payment_id, status: "CONFIRMED" },
+                    $push: { events: { status: "CONFIRMED", note: "Razorpay payment verified via client callback" } }
+                }
             );
 
-            await notify("customer", `Payment successful! ₹${order.total}`, "payment", order.customerId);
-            await notify("seller", `Payment received — ₹${revenue.sellerEarnings} earnings`, "payment");
-            await notify("admin", `Transaction completed — ₹${revenue.platformFee} platform fee`, "payment");
+            await User.findByIdAndUpdate(orders[0].customerId, { $inc: { totalOrders: orders.length } });
+
+            // Calculate total revenue from all sub-orders combined
+            let totalGrand = 0;
+            for (const o of orders) {
+                totalGrand += o.total;
+                const revenue = distributeRevenue(o.total);
+                await notify("seller", `Payment received — ₹${revenue.sellerEarnings} earnings`, "payment");
+            }
+
+            const totalRevenue = distributeRevenue(totalGrand);
+            // Complete unified transaction
+            await Transaction.findOneAndUpdate(
+                { paymentId: paymentGroupId, status: "pending" },
+                { paymentId: razorpay_payment_id, ...totalRevenue, status: "completed" }
+            );
+
+            await notify("customer", `Payment successful! ₹${totalGrand}`, "payment", orders[0].customerId);
+            await notify("admin", `Group Transaction completed — ₹${totalGrand}`, "payment");
 
             logger.info("Payment verified via client callback", {
-                orderId: order._id.toString(),
-                paymentId: razorpay_payment_id,
-                total: order.total,
+                paymentGroupId, paymentId: razorpay_payment_id, total: totalGrand, orderCount: orders.length
             });
 
-            res.json({ ok: true, message: "Payment verified", order });
+            // Refetch to return updated array
+            const updatedOrders = await Order.find({ razorpayOrderId: razorpay_order_id });
+            res.json({ ok: true, message: "Payment verified", orders: updatedOrders });
         } catch (err) { next(err); }
     }
 );
@@ -318,25 +374,37 @@ router.post("/webhook", express.raw({ type: "application/json" }), async (req, r
 
 // ── Webhook handler: payment.captured ─────────────────────────────────────────
 async function handlePaymentCaptured(payment) {
-    // Handle order payment
-    const order = await Order.findOne({ razorpayOrderId: payment.order_id });
-    if (order && order.paymentStatus !== "paid") {
-        order.paymentStatus = "paid";
-        order.paymentId = payment.id;
-        await order.save();
+    // Handle order payment (array-based for Multi-Seller)
+    const orders = await Order.find({ razorpayOrderId: payment.order_id });
+    if (orders.length > 0 && orders[0].paymentStatus !== "paid") {
+        const paymentGroupId = orders[0].paymentGroupId;
 
-        await User.findByIdAndUpdate(order.customerId, { $inc: { totalOrders: 1 } });
-
-        const revenue = distributeRevenue(order.total);
-        await Transaction.findOneAndUpdate(
-            { orderId: order._id, status: "pending" },
-            { paymentId: payment.id, ...revenue, status: "completed" }
+        await Order.updateMany(
+            { razorpayOrderId: payment.order_id, status: "PENDING_PAYMENT" },
+            {
+                $set: { paymentStatus: "paid", paymentId: payment.id, status: "CONFIRMED" },
+                $push: { events: { status: "CONFIRMED", note: "Razorpay payment verified via webhook" } }
+            }
         );
 
-        await notify("customer", `Payment successful! ₹${order.total}`, "payment", order.customerId);
-        await notify("seller", `Payment received — ₹${revenue.sellerEarnings} earnings`, "payment");
+        await User.findByIdAndUpdate(orders[0].customerId, { $inc: { totalOrders: orders.length } });
 
-        logger.info("Webhook: order payment captured", { orderId: order._id.toString(), paymentId: payment.id });
+        let grandTotal = 0;
+        for (const o of orders) {
+            grandTotal += o.total;
+            const rev = distributeRevenue(o.total);
+            await notify("seller", `Payment received — ₹${rev.sellerEarnings} earnings`, "payment", o.sellerId);
+        }
+
+        const combinedRev = distributeRevenue(grandTotal);
+        await Transaction.findOneAndUpdate(
+            { paymentId: paymentGroupId, status: "pending" },
+            { paymentId: payment.id, ...combinedRev, status: "completed" }
+        );
+
+        await notify("customer", `Payment successful! ₹${grandTotal}`, "payment", orders[0].customerId);
+
+        logger.info("Webhook: group payment captured", { paymentGroupId, paymentId: payment.id, orderCount: orders.length });
     }
 
     // Handle wallet top-up
@@ -364,42 +432,48 @@ async function handlePaymentCaptured(payment) {
 
 // ── Webhook handler: payment.failed ───────────────────────────────────────────
 async function handlePaymentFailed(payment) {
-    const order = await Order.findOne({ razorpayOrderId: payment.order_id });
-    if (order && order.paymentStatus === "pending") {
-        order.paymentStatus = "failed";
-        await order.save();
+    const orders = await Order.find({ razorpayOrderId: payment.order_id });
+    if (orders.length > 0 && orders[0].paymentStatus === "pending" || orders.length > 0 && orders[0].status === "PENDING_PAYMENT") {
+        const paymentGroupId = orders[0].paymentGroupId;
+
+        await Order.updateMany(
+            { razorpayOrderId: payment.order_id },
+            { paymentStatus: "failed", status: "CANCELLED" }
+        );
 
         // Mark transaction as failed
         await Transaction.findOneAndUpdate(
-            { orderId: order._id, status: "pending" },
+            { paymentId: paymentGroupId, status: "pending" },
             { status: "failed" }
         );
 
-        // Restore stock
-        for (const item of order.items) {
-            await Product.findByIdAndUpdate(item.productId, { $inc: { stock: item.qty } });
+        // Restore stock across ALL sub-orders
+        for (const order of orders) {
+            for (const item of order.items) {
+                await Product.findByIdAndUpdate(item.productId, { $inc: { stock: item.qty } });
+            }
         }
 
         // Refund wallet portion if hybrid payment
-        const txn = await Transaction.findOne({ orderId: order._id });
+        const txn = await Transaction.findOne({ paymentId: paymentGroupId });
         if (txn && txn.walletAmount > 0) {
-            const user = await User.findById(order.customerId);
+            const user = await User.findById(orders[0].customerId);
             const updatedUser = await User.findByIdAndUpdate(
-                order.customerId,
+                orders[0].customerId,
                 { $inc: { walletBalance: txn.walletAmount } },
                 { new: true }
             );
             await WalletTransaction.create({
-                userId: order.customerId, type: "credit", amount: txn.walletAmount,
-                category: "refund", orderId: order._id,
+                userId: orders[0].customerId, type: "credit", amount: txn.walletAmount,
+                category: "refund", orderId: null,
                 balanceBefore: user.walletBalance,
                 balanceAfter: updatedUser.walletBalance,
-                note: `Refund — payment failed for order ${order._id}`,
+                note: `Refund — payment failed for Group ${paymentGroupId}`,
             });
         }
 
-        await notify("customer", `Payment failed for order. Stock has been restored.`, "alert", order.customerId);
-        logger.info("Webhook: payment failed", { orderId: order._id.toString() });
+        await notify("customer", `Payment failed for orders. Stock has been restored.`, "alert", orders[0].customerId);
+        logger.info("Webhook: payment failed (Stock Restored)", { paymentGroupId });
     }
 
     // Handle failed wallet top-up

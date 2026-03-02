@@ -213,13 +213,20 @@ export function CustomerApp({ activeTab, setActiveTab }) {
     }, [cartCount]);
 
     // Called when checkout succeeds — sync real backend order, then open Orders tab
-    const handleCheckoutSuccess = useCallback((backendOrder) => {
+    const handleCheckoutSuccess = useCallback((backendOrders) => {
         setShowCheckout(false);
-        if (backendOrder) setBackendOrder(backendOrder);
-        // Also pull all orders from backend to ensure consistency
+        const singleOrder = backendOrders?.[0] || null;
+        if (singleOrder) setBackendOrder(singleOrder);
+        // Pull all orders from backend to ensure consistency
         fetchOrders();
         setActiveTab(2); // Navigate to Orders
-        setTrackingOrder(backendOrder || null);
+
+        // Auto-open tracking only if it's a single order. If multi-seller, let them open manually.
+        if (backendOrders?.length === 1) {
+            setTrackingOrder(singleOrder);
+        } else {
+            setTrackingOrder(null);
+        }
     }, [setBackendOrder, fetchOrders, setActiveTab]);
 
 
