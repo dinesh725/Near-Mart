@@ -41,7 +41,7 @@ export function SellerDashboard({ activeTab }) {
 
     const getToken = () => localStorage.getItem("nm_access_token");
 
-    const handleConfirmOrder = useCallback(async (orderId) => {
+    const handleConfirmOrder = useCallback(async (orderId, silent = false) => {
         // Try backend API first
         try {
             if (!getToken()) throw new Error("Local session — skipping backend confirm");
@@ -52,14 +52,22 @@ export function SellerDashboard({ activeTab }) {
             const data = await res.json();
             if (data.ok) {
                 acceptOrder(orderId, user?.storeId);
-                setToast({ msg: `Order confirmed ✔`, icon: "✅" });
+                if (!silent) setToast({ msg: `Order confirmed ✔`, icon: "✅" });
                 return;
             }
         } catch (e) { /* backend unavailable, use local fallback */ }
         // Local fallback for mock orders
         acceptOrder(orderId, user?.storeId);
-        setToast({ msg: `Order confirmed ✔`, icon: "✅" });
+        if (!silent) setToast({ msg: `Order confirmed ✔`, icon: "✅" });
     }, [API, acceptOrder, user]);
+
+    const handleBulkConfirm = useCallback(async (orderIds, customerName) => {
+        setToast({ msg: `Confirming ${orderIds.length} orders for ${customerName}...`, icon: "⏳" });
+        for (const oid of orderIds) {
+            await handleConfirmOrder(oid, true);
+        }
+        setToast({ msg: `All orders for ${customerName} confirmed! ✅`, icon: "✅" });
+    }, [handleConfirmOrder]);
 
     const handlePrepareOrder = useCallback(async (orderId) => {
         const prepTime = prepTimeInput[orderId] || 15;
@@ -189,43 +197,58 @@ export function SellerDashboard({ activeTab }) {
                 ))}
             </div>
 
-            {pendingOrds.length > 0 && (
-                <div className="p-card" style={{ borderColor: P.warning + "44", background: `${P.warning}08` }}>
-                    <h3 style={{ fontWeight: 700, fontSize: 15, marginBottom: 12 }}>⚡ Action Needed — {pendingOrds.length} Pending</h3>
-                    <div className="col gap10">
-                        {pendingOrds.map(o => {
-                            const oid = o._id || o.id;
-                            return (
-                                <div key={oid} className="p-card" style={{ padding: "14px 16px" }}>
-                                    <div className="row-between mb8">
+            {pendingOrds.length > 0 ? (() => {
+                // Group pending orders by customer
+                const groupedPending = Object.values(pendingOrds.reduce((acc, o) => {
+                    const key = o.customerId || o.customerName; // Fallback to name if ID missing
+                    if (!acc[key]) acc[key] = { customerId: key, customerName: o.customerName, orders: [], total: 0 };
+                    acc[key].orders.push(o);
+                    acc[key].total += o.total;
+                    return acc;
+                }, {}));
+
+                return (
+                    <div className="p-card" style={{ borderColor: P.warning + "44", background: `${P.warning}08` }}>
+                        <h3 style={{ fontWeight: 700, fontSize: 15, marginBottom: 12 }}>⚡ Action Needed — {pendingOrds.length} Pending Actions</h3>
+                        <div className="col gap14">
+                            {groupedPending.map(group => (
+                                <div key={group.customerId} className="p-card border-none" style={{ background: "white", boxShadow: "0 2px 8px rgba(0,0,0,0.05)" }}>
+                                    <div className="row-between mb12" style={{ borderBottom: `1px solid ${P.border}44`, paddingBottom: 10 }}>
                                         <div>
-                                            <div style={{ fontWeight: 700 }}>#{oid?.slice(-6)?.toUpperCase() || oid} <span style={{ color: P.textMuted, fontWeight: 400, fontSize: 12 }}>· {o.customerName}</span></div>
-                                            <div style={{ fontSize: 12, color: P.textMuted, marginTop: 2 }}>{o.items?.map(i => `${i.emoji}×${i.qty}`).join(" ")} · ₹{o.total}</div>
+                                            <div style={{ fontWeight: 800, fontSize: 15 }}>👤 {group.customerName}</div>
+                                            <div style={{ fontSize: 12, color: P.textMuted, marginTop: 2 }}>{group.orders.length} order{group.orders.length > 1 ? "s" : ""} · Total: ₹{group.total}</div>
                                         </div>
-                                        <div style={{ background: STATUS_COLOR[o.status] + "22", color: STATUS_COLOR[o.status], borderRadius: 20, padding: "4px 12px", fontSize: 11, fontWeight: 700 }}>
-                                            {STATUS_ICON[o.status]} {STATUS_LABEL[o.status]}
-                                        </div>
+                                        {group.orders.length > 1 && (
+                                            <button className="p-btn p-btn-sm" style={{ background: P.primary, color: "white" }} onClick={() => handleBulkConfirm(group.orders.map(o => o._id || o.id), group.customerName)}>
+                                                ✅ Accept All
+                                            </button>
+                                        )}
                                     </div>
-                                    {o.status === "PENDING" && (
-                                        <button className="p-btn p-btn-primary w-100" onClick={() => handleConfirmOrder(oid)}>✅ Confirm Order</button>
-                                    )}
-                                    {o.status === "CONFIRMED" && (
-                                        <div style={{ display: "flex", gap: 8 }}>
-                                            <input type="number" placeholder="Prep min" min={5} max={60} value={prepTimeInput[oid] || 15}
-                                                onChange={e => setPrepTimeInput(p => ({ ...p, [oid]: e.target.value }))}
-                                                className="p-input" style={{ width: 80, textAlign: "center" }} />
-                                            <button className="p-btn p-btn-primary" style={{ flex: 1 }} onClick={() => handlePrepareOrder(oid)}>👨‍🍳 Start Prep</button>
-                                        </div>
-                                    )}
-                                    {o.status === "PREPARING" && (
-                                        <button className="p-btn w-100" style={{ background: P.accent, color: "white" }} onClick={() => handleReadyForPickup(oid)}>📦 Mark Ready for Pickup</button>
-                                    )}
+                                    <div className="col gap10">
+                                        {group.orders.map(o => {
+                                            const oid = o._id || o.id;
+                                            return (
+                                                <div key={oid} style={{ padding: "10px", background: P.surface, borderRadius: 8 }}>
+                                                    <div className="row-between mb8">
+                                                        <div>
+                                                            <div style={{ fontWeight: 700, fontSize: 13 }}>#{oid?.slice(-6)?.toUpperCase() || oid}</div>
+                                                            <div style={{ fontSize: 12, color: P.textMuted, marginTop: 4 }}>{o.items?.map(i => `${i.emoji}×${i.qty}`).join(" ")}</div>
+                                                        </div>
+                                                        <div style={{ fontWeight: 700, color: P.warning }}>₹{o.total}</div>
+                                                    </div>
+                                                    <button className="p-btn p-btn-ghost w-100" style={{ fontSize: 13, minHeight: 40, border: `1px solid ${P.border}`, fontWeight: 700 }} onClick={() => handleConfirmOrder(oid)}>
+                                                        ✅ Accept Order
+                                                    </button>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
                                 </div>
-                            );
-                        })}
+                            ))}
+                        </div>
                     </div>
-                </div>
-            )}
+                );
+            })() : null}
 
             {lowStock.length > 0 && (
                 <div className="p-card" style={{ borderColor: P.danger + "44" }}>
