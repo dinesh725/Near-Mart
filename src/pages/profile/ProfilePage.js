@@ -27,7 +27,22 @@ export function ProfilePage() {
     const { user, role, logout, updateUser, changePassword } = useAuth();
     const { orders, cartCount } = useStore();
     const [editing, setEditing] = useState(false);
-    const [editForm, setEditForm] = useState({ name: user?.name || "", phone: user?.phone || "", address: user?.address || "" });
+    const [editForm, setEditForm] = useState({
+        name: user?.name || "",
+        phone: user?.phone || "",
+        address: user?.address || "",
+        storeName: user?.storeName || "",
+        storeId: user?.storeId || "",
+        city: user?.city || "",
+        payoutAccount: user?.payoutAccount || "",
+        companyName: user?.companyName || "",
+        supplierId: user?.supplierId || "",
+        paymentTerms: user?.paymentTerms || "",
+        vehicleType: user?.vehicleType || "",
+        vehicleNo: user?.vehicleNo || "",
+        department: user?.department || "",
+        shift: user?.shift || ""
+    });
     const [pwForm, setPwForm] = useState({ old: "", new: "", confirm: "" });
     const [pwMsg, setPwMsg] = useState(null);
     const [saveMsg, setSaveMsg] = useState(null);
@@ -42,7 +57,15 @@ export function ProfilePage() {
     const accentColor = ROLE_COLORS[role] || P.primary;
 
     const handleSave = useCallback(() => {
-        updateUser({ name: editForm.name.trim(), phone: editForm.phone.trim(), address: editForm.address.trim() });
+        updateUser({
+            name: editForm.name.trim(),
+            phone: editForm.phone.trim(),
+            address: editForm.address.trim(),
+            ...(role === "seller" && { storeName: editForm.storeName, storeId: editForm.storeId, city: editForm.city, payoutAccount: editForm.payoutAccount }),
+            ...(role === "vendor" && { companyName: editForm.companyName, supplierId: editForm.supplierId, city: editForm.city, paymentTerms: editForm.paymentTerms }),
+            ...(role === "delivery" && { vehicleType: editForm.vehicleType, vehicleNo: editForm.vehicleNo, payoutAccount: editForm.payoutAccount }),
+            ...((role === "support" || role === "admin") && { department: editForm.department, shift: editForm.shift })
+        });
         setEditing(false);
         setSaveMsg("Profile updated!");
         setTimeout(() => setSaveMsg(null), 3000);
@@ -112,6 +135,45 @@ export function ProfilePage() {
                                 <input id="prof-addr" type="text" className="p-input" placeholder="Enter your address" value={editForm.address} onChange={e => setEditForm(f => ({ ...f, address: e.target.value }))} />
                             </div>
                         )}
+                        {role === "seller" && (
+                            <>
+                                <div className="p-field"><label style={{ fontSize: 12, color: P.textMuted, fontWeight: 600 }}>Store Name</label><input type="text" className="p-input" value={editForm.storeName} onChange={e => setEditForm(f => ({ ...f, storeName: e.target.value }))} /></div>
+                                <div className="p-field"><label style={{ fontSize: 12, color: P.textMuted, fontWeight: 600 }}>Store ID</label><input type="text" className="p-input" value={editForm.storeId} onChange={e => setEditForm(f => ({ ...f, storeId: e.target.value }))} /></div>
+                                <div className="p-field"><label style={{ fontSize: 12, color: P.textMuted, fontWeight: 600 }}>City</label><input type="text" className="p-input" value={editForm.city} onChange={e => setEditForm(f => ({ ...f, city: e.target.value }))} /></div>
+                                <div className="p-field"><label style={{ fontSize: 12, color: P.textMuted, fontWeight: 600 }}>Payout Account (Bank)</label><input type="text" className="p-input" placeholder="e.g. HDFC 5432" value={editForm.payoutAccount} onChange={e => setEditForm(f => ({ ...f, payoutAccount: e.target.value }))} /></div>
+                            </>
+                        )}
+                        {role === "vendor" && (
+                            <>
+                                <div className="p-field"><label style={{ fontSize: 12, color: P.textMuted, fontWeight: 600 }}>Company Name</label><input type="text" className="p-input" value={editForm.companyName} onChange={e => setEditForm(f => ({ ...f, companyName: e.target.value }))} /></div>
+                                <div className="p-field"><label style={{ fontSize: 12, color: P.textMuted, fontWeight: 600 }}>Supplier ID</label><input type="text" className="p-input" value={editForm.supplierId} onChange={e => setEditForm(f => ({ ...f, supplierId: e.target.value }))} /></div>
+                                <div className="p-field"><label style={{ fontSize: 12, color: P.textMuted, fontWeight: 600 }}>City</label><input type="text" className="p-input" value={editForm.city} onChange={e => setEditForm(f => ({ ...f, city: e.target.value }))} /></div>
+                                <div className="p-field"><label style={{ fontSize: 12, color: P.textMuted, fontWeight: 600 }}>Payment Terms</label><input type="text" className="p-input" placeholder="e.g. Net 14" value={editForm.paymentTerms} onChange={e => setEditForm(f => ({ ...f, paymentTerms: e.target.value }))} /></div>
+                            </>
+                        )}
+                        {role === "delivery" && (
+                            <>
+                                <div className="p-field">
+                                    <label style={{ fontSize: 12, color: P.textMuted, fontWeight: 600 }}>Vehicle Type</label>
+                                    <select className="p-input" value={editForm.vehicleType} onChange={e => setEditForm(f => ({ ...f, vehicleType: e.target.value }))}>
+                                        <option value="bike">Bike (Standard)</option>
+                                        <option value="scooter">Scooter</option>
+                                        <option value="mini_truck">Mini Truck (Wholesale/B2B)</option>
+                                        <option value="van">Van (Wholesale/B2B)</option>
+                                        <option value="large_truck">Large Truck (Heavy B2B)</option>
+                                    </select>
+                                </div>
+                                <div className="p-field"><label style={{ fontSize: 12, color: P.textMuted, fontWeight: 600 }}>Cargo Weight Limit (kg)</label><input type="number" className="p-input" value={editForm.weightCapacity} onChange={e => setEditForm(f => ({ ...f, weightCapacity: Number(e.target.value) }))} /></div>
+                                <div className="p-field"><label style={{ fontSize: 12, color: P.textMuted, fontWeight: 600 }}>Vehicle / License Plate No.</label><input type="text" className="p-input" value={editForm.vehicleNo} onChange={e => setEditForm(f => ({ ...f, vehicleNo: e.target.value }))} /></div>
+                                <div className="p-field"><label style={{ fontSize: 12, color: P.textMuted, fontWeight: 600 }}>Payout Account (Bank)</label><input type="text" className="p-input" placeholder="e.g. SBI 7890" value={editForm.payoutAccount} onChange={e => setEditForm(f => ({ ...f, payoutAccount: e.target.value }))} /></div>
+                            </>
+                        )}
+                        {(role === "support" || role === "admin") && (
+                            <>
+                                <div className="p-field"><label style={{ fontSize: 12, color: P.textMuted, fontWeight: 600 }}>Department</label><input type="text" className="p-input" value={editForm.department} onChange={e => setEditForm(f => ({ ...f, department: e.target.value }))} /></div>
+                                <div className="p-field"><label style={{ fontSize: 12, color: P.textMuted, fontWeight: 600 }}>Primary Shift</label><input type="text" className="p-input" placeholder="e.g. 9:00 AM - 6:00 PM" value={editForm.shift} onChange={e => setEditForm(f => ({ ...f, shift: e.target.value }))} /></div>
+                            </>
+                        )}
                         <div style={{ display: "flex", gap: 10 }}>
                             <button className="p-btn p-btn-primary" style={{ flex: 1 }} onClick={handleSave}>Save Changes</button>
                             <button className="p-btn p-btn-ghost" onClick={() => setEditing(false)}>Cancel</button>
@@ -123,7 +185,16 @@ export function ProfilePage() {
                         <InfoRow label="Email" value={user?.email} />
                         <InfoRow label="Phone" value={user?.phone || "Not set"} muted={!user?.phone} />
                         {role === "customer" && <InfoRow label="Address" value={user?.address || "Not set"} muted={!user?.address} />}
-                        <button className="p-btn p-btn-ghost" style={{ marginTop: 12, fontSize: 12 }} onClick={() => { setEditing(true); setEditForm({ name: user?.name || "", phone: user?.phone || "", address: user?.address || "" }); }}>Edit Profile ✏️</button>
+                        <button className="p-btn p-btn-ghost" style={{ marginTop: 12, fontSize: 12 }} onClick={() => {
+                            setEditing(true);
+                            setEditForm({
+                                name: user?.name || "", phone: user?.phone || "", address: user?.address || "",
+                                storeName: user?.storeName || "", storeId: user?.storeId || "", city: user?.city || "", payoutAccount: user?.payoutAccount || "",
+                                companyName: user?.companyName || "", supplierId: user?.supplierId || "", paymentTerms: user?.paymentTerms || "",
+                                vehicleType: user?.vehicleType || "bike", vehicleNo: user?.vehicleNo || "", weightCapacity: user?.weightCapacity || 20,
+                                department: user?.department || "", shift: user?.shift || ""
+                            });
+                        }}>Edit Profile ✏️</button>
                     </div>
                 )}
             </Section>
@@ -140,45 +211,47 @@ export function ProfilePage() {
 
             {role === "seller" && (
                 <Section title="Store Information" icon="🏪">
-                    <InfoRow label="Store Name" value={user?.storeName} />
-                    <InfoRow label="Store ID" value={user?.storeId} />
-                    <InfoRow label="City" value={user?.city || "Mumbai"} />
-                    <InfoRow label="Business Hours" value="9:00 AM - 10:00 PM" />
-                    <InfoRow label="Payout Account" value="••••5432 (HDFC)" muted />
+                    <InfoRow label="Store Name" value={user?.storeName || "Not set"} />
+                    <InfoRow label="Store ID" value={user?.storeId || "Not set"} />
+                    <InfoRow label="City" value={user?.city || "Not set"} />
+                    <InfoRow label="Business Hours" value={user?.businessHours?.open ? `${user?.businessHours?.open} - ${user?.businessHours?.close}` : "Not set"} />
+                    <InfoRow label="Payout Account" value={user?.payoutAccount || "Not mapped"} muted={!user?.payoutAccount} />
                 </Section>
             )}
 
             {role === "vendor" && (
                 <Section title="Company Details" icon="🏭">
-                    <InfoRow label="Company" value={user?.companyName} />
-                    <InfoRow label="Supplier ID" value={user?.supplierId} />
-                    <InfoRow label="City" value={user?.city || "Nashik, MH"} />
-                    <InfoRow label="Payment Terms" value="Net 14" />
+                    <InfoRow label="Company" value={user?.companyName || "Not set"} />
+                    <InfoRow label="Supplier ID" value={user?.supplierId || "Not set"} />
+                    <InfoRow label="City" value={user?.city || "Not set"} />
+                    <InfoRow label="Payment Terms" value={user?.paymentTerms || "Not configured"} />
                 </Section>
             )}
 
             {role === "delivery" && (
                 <Section title="Delivery Profile" icon="🛵">
-                    <InfoRow label="Vehicle Type" value={user?.vehicleType} />
-                    <InfoRow label="Vehicle No." value={user?.vehicleNo || "MH 01 AB 1234"} />
-                    <InfoRow label="Rating" value={`⭐ ${user?.rating || 4.8}`} />
-                    <InfoRow label="Deliveries Today" value="0" />
-                    <InfoRow label="Payout Account" value="••••7890 (SBI)" muted />
+                    <InfoRow label="Vehicle Type" value={user?.vehicleType?.toUpperCase() || "Not configured"} />
+                    <InfoRow label="Cargo Capacity" value={`${user?.weightCapacity || 20} kg`} />
+                    <InfoRow label="Vehicle No." value={user?.vehicleNo || "Not configured"} />
+                    <InfoRow label="Rating" value={`⭐ ${user?.rating?.toFixed(1) || 5.0}`} />
+                    <InfoRow label="Deliveries Today" value={user?.resolvedToday || 0} />
+                    <InfoRow label="Payout Account" value={user?.payoutAccount || "Not mapped"} muted={!user?.payoutAccount} />
                 </Section>
             )}
 
             {role === "support" && (
                 <Section title="Agent Details" icon="🎧">
-                    <InfoRow label="Department" value={user?.department} />
+                    <InfoRow label="Department" value={user?.department || "General Support"} />
                     <InfoRow label="Resolved Today" value={user?.resolvedToday || 0} />
-                    <InfoRow label="Shift" value="9:00 AM - 6:00 PM" />
+                    <InfoRow label="Shift" value={user?.shift || "Not scheduled"} />
                 </Section>
             )}
 
             {role === "admin" && (
                 <Section title="Admin Access" icon="🛡">
-                    <InfoRow label="Access Level" value={user?.accessLevel?.toUpperCase()} />
-                    <InfoRow label="Department" value={user?.department} />
+                    <InfoRow label="Access Level" value={user?.accessLevel?.toUpperCase() || "L1"} />
+                    <InfoRow label="Department" value={user?.department || "HQ"} />
+                    <InfoRow label="Shift" value={user?.shift || "Not scheduled"} />
                 </Section>
             )}
 

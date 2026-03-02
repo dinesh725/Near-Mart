@@ -63,8 +63,8 @@ export function GlobalStoreProvider({ children }) {
 
     const [tickets, setTickets] = useState(() => load("nm_tickets", INIT_TICKETS));
     const [notifications, setNotifications] = useState(() => load("nm_notifs", INIT_NOTIFICATIONS));
-    const [vendorInventory, setVendorInventory] = useState(() => load("nm_vendinv", INIT_VENDOR_INV));
-    const [procurement, setProcurement] = useState(() => load("nm_proc", INIT_PROCUREMENT));
+    const [vendorInventory, setVendorInventory] = useState([]);
+    const [procurement, setProcurement] = useState([]);
     const [shareViewEnabled, setShareViewEnabled] = useState(false);
 
     // ── Global Toast Stack (GlobalNotifStack reads this) ─────────────────────
@@ -378,10 +378,35 @@ export function GlobalStoreProvider({ children }) {
         }
     }, []);
 
+    const fetchVendorInventory = useCallback(async () => {
+        try {
+            const token = localStorage.getItem("nm_access_token");
+            if (!token) return;
+            const API_BASE = process.env.REACT_APP_API_URL || "http://localhost:5000/api";
+            const res = await fetch(`${API_BASE}/vendor-inventory`, { headers: { "Authorization": `Bearer ${token}` } });
+            const data = await res.json();
+            if (data.ok && data.inventory) setVendorInventory(data.inventory.map(m => ({ ...m, id: m._id })));
+        } catch (err) { console.error("Failed to fetch vendor inventory:", err); }
+    }, []);
+
+    const fetchProcurement = useCallback(async () => {
+        try {
+            const token = localStorage.getItem("nm_access_token");
+            if (!token) return;
+            const API_BASE = process.env.REACT_APP_API_URL || "http://localhost:5000/api";
+            const res = await fetch(`${API_BASE}/procurement`, { headers: { "Authorization": `Bearer ${token}` } });
+            const data = await res.json();
+            if (data.ok && data.procurement) setProcurement(data.procurement.map(m => ({ ...m, id: m._id })));
+        } catch (err) { console.error("Failed to fetch proc:", err); }
+    }, []);
+
     // Initial data load
     useEffect(() => {
         fetchProducts();
-    }, [fetchProducts]);
+        fetchOrders();
+        fetchVendorInventory();
+        fetchProcurement();
+    }, [fetchProducts, fetchOrders, fetchVendorInventory, fetchProcurement]);
 
     const setBackendOrder = useCallback((order) => {
         setOrders(prev => {
@@ -412,7 +437,37 @@ export function GlobalStoreProvider({ children }) {
     }, [notifyRole]);
 
     // ── SCM / Purchase Order Actions ──────────────────────────────────────────
-    const createPO = useCallback((details) => {
+    const createPO = useCallback(async (details) => {
+        try {
+            const token = localStorage.getItem("nm_access_token");
+            const API_BASE = process.env.REACT_APP_API_URL || "http://localhost:5000/api";
+
+            // Fire a single bundled procurement request for the vendor behind the scenes
+            if (token) {
+                const res = await fetch(`${API_BASE}/procurement`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+                    body: JSON.stringify({
+                        items: details.items.map(item => ({
+                            productName: item.name,
+                            qty: Number(item.qty),
+                            costPrice: Number(item.costPrice)
+                        })),
+                        vendorId: details.supplierId,
+                        vendorName: details.supplierName
+                    })
+                });
+
+                if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    throw new Error(data.error || `Server declined with status ${res.status}`);
+                }
+            }
+        } catch (err) {
+            console.error("Failed to create PO:", err);
+            throw err; // Forward error to UI!
+        }
+
         const newPO = {
             id: `PO-${Date.now()}`,
             date: new Date().toLocaleDateString("en-IN", { day: "numeric", month: "short" }),
@@ -424,8 +479,9 @@ export function GlobalStoreProvider({ children }) {
             total: (details.subtotal || 0) + (details.gst || 0) - (details.discount || 0),
         };
         setPurchaseOrders(prev => [newPO, ...prev]);
+        fetchProcurement(); // refresh local records
         return newPO;
-    }, []);
+    }, [fetchProcurement]);
 
     const updatePOStatus = useCallback((id, status) => {
         setPurchaseOrders(prev => prev.map(po =>
@@ -434,23 +490,47 @@ export function GlobalStoreProvider({ children }) {
     }, []);
 
     // ── Vendor Actions ────────────────────────────────────────────────────────
-    const vendorFulfillOrder = useCallback((procurementId, qty) => {
+    const vendorFulfillOrder = useCallback(async (procurementId, qty) => {
+        try {
+            const token = localStorage.getItem("nm_access_token");
+            const API_BASE = process.env.REACT_APP_API_URL || "http://localhost:5000/api";
+
+            if (token) {
+                const res = await fetch(`${API_BASE}/procurement/${procurementId}/fulfill`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }
+                });
+                const data = await res.json();
+                if (!data.ok) {
+                    notifyRole("vendor", `Error: ${data.error}`, "alert");
+                    return false;
+                }
+            }
+        } catch (err) {
+            console.error(err);
+        }
+
         setProcurement(prev => prev.map(p =>
             p.id === procurementId ? { ...p, status: "fulfilled" } : p
         ));
-        // Find product and add stock to seller
+
+        // Find product and add stock to seller locally
         const rec = procurement.find(p => p.id === procurementId);
-        if (rec) {
-            const prod = products.find(p => p.name === rec.productName);
-            if (prod) updateStock(prod.id, qty || rec.qty);
-            notifyRole("seller", `📦 Stock refilled: ${rec.productName} (+${qty || rec.qty} ${prod?.unit || "units"})`, "success");
-            // Deduct vendor inventory
-            setVendorInventory(prev => prev.map(v =>
-                v.productName === rec.productName && v.supplierId === rec.vendorId
-                    ? { ...v, stock: Math.max(0, v.stock - (qty || rec.qty)) }
-                    : v
-            ));
+        if (rec && rec.items) {
+            rec.items.forEach(item => {
+                const prod = products.find(p => p.name === item.productName);
+                if (prod) updateStock(prod.id, item.qty);
+
+                // Deduct vendor inventory locally
+                setVendorInventory(prev => prev.map(v =>
+                    v.productName === item.productName && v.vendorId === rec.vendorId
+                        ? { ...v, stock: Math.max(0, v.stock - item.qty) }
+                        : v
+                ));
+            });
+            notifyRole("seller", `📦 Stock refilled: ${rec.items.length} bulk items delivered`, "success");
         }
+        return true;
     }, [procurement, products, updateStock, notifyRole]);
 
     const createProcurementRequest = useCallback((details) => {

@@ -24,7 +24,11 @@ function GoogleAuthScript({ onSuccess, onError }) {
 
     const renderButton = (id) => {
         if (window.google) {
-            window.google.accounts.id.renderButton(document.getElementById(id), { theme: "outline", size: "large", type: "standard", shape: "pill", width: "320" });
+            // Dynamic width to prevent zooming on 320px screens (iPhone SE, etc.)
+            const btnWidth = Math.min(384, window.innerWidth > 440 ? 384 : window.innerWidth - 32).toString();
+            window.google.accounts.id.renderButton(document.getElementById(id), {
+                theme: "filled_black", size: "large", type: "standard", shape: "pill", width: btnWidth
+            });
         }
     };
 
@@ -65,15 +69,17 @@ function validateLogin(form) {
 }
 
 // ── Floating Label Input ──────────────────────────────────────────────────────
-function FloatingInput({ id, label, type = "text", value, onChange, onKeyDown, error, icon, rightSlot, autoFocus }) {
+function FloatingInput({ id, label, type = "text", value, onChange, onKeyDown, error, icon, rightSlot, autoFocus, autoComplete }) {
     const [focused, setFocused] = useState(false);
     const hasValue = !!value;
     const isActive = focused || hasValue;
 
     return (
-        <div style={{ position: "relative", marginBottom: error ? 4 : 0 }}>
+        <div style={{ position: "relative", marginBottom: error ? 4 : 0, width: "100%", boxSizing: "border-box" }}>
             <div style={{
                 position: "relative",
+                width: "100%",
+                boxSizing: "border-box",
                 border: `1.5px solid ${error ? P.danger : focused ? P.primary : "rgba(255,255,255,0.12)"}`,
                 borderRadius: 14,
                 background: focused ? "rgba(255,255,255,0.04)" : "rgba(255,255,255,0.02)",
@@ -90,6 +96,7 @@ function FloatingInput({ id, label, type = "text", value, onChange, onKeyDown, e
                     onBlur={() => setFocused(false)}
                     onKeyDown={onKeyDown}
                     autoFocus={autoFocus}
+                    autoComplete={autoComplete}
                     {...(type === "tel" || id === "otp-code" ? { inputMode: "numeric", pattern: "[0-9]*" } : {})}
                     {...(id === "otp-code" ? { autoComplete: "one-time-code" } : {})}
                     style={{
@@ -141,7 +148,7 @@ function StrengthBar({ password }) {
 
 export function LoginPage() {
     const { loginAsRole, login, signup, loginWithGoogle } = useAuth();
-    const [tab, setTab] = useState("demo");
+    const [tab, setTab] = useState("signin");
     const [loginMethod, setLoginMethod] = useState("email"); // "email" | "phone"
     const [hovered, setHovered] = useState(null);
     const [form, setForm] = useState({ name: "", email: "", password: "", role: "customer" });
@@ -267,11 +274,13 @@ export function LoginPage() {
     }, [form, signup]);
 
     const pwToggle = useMemo(() => (
-        <button onClick={() => setShowPw(v => !v)} style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(255,255,255,0.4)", fontSize: 16, padding: "8px 10px", transition: "color .2s" }}
-            onMouseEnter={e => e.currentTarget.style.color = "rgba(255,255,255,.7)"}
-            onMouseLeave={e => e.currentTarget.style.color = "rgba(255,255,255,.4)"}>
-            {showPw ? "🙈" : "👁"}
-        </button>
+        <div style={{ width: 40, display: "flex", justifyContent: "center" }}>
+            <button type="button" onClick={() => setShowPw(v => !v)} style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(255,255,255,0.4)", fontSize: 16, padding: "8px", transition: "color .2s" }}
+                onMouseEnter={e => e.currentTarget.style.color = "rgba(255,255,255,.7)"}
+                onMouseLeave={e => e.currentTarget.style.color = "rgba(255,255,255,.4)"}>
+                {showPw ? "🙈" : "👁"}
+            </button>
+        </div>
     ), [showPw]);
 
     const TAB_STYLE = (active) => ({
@@ -318,57 +327,13 @@ export function LoginPage() {
 
             {/* Tab Switcher */}
             <div style={{ display: "flex", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 4, gap: 4, marginBottom: 28, width: "100%", maxWidth: 440 }}>
-                {[["demo", "Demo"], ["signin", "Sign In"], ["signup", "Sign Up"]].map(([k, l]) => (
+                {[["signin", "Sign In"], ["signup", "Sign Up"]].map(([k, l]) => (
                     <button key={k} style={TAB_STYLE(tab === k)} onClick={() => { setTab(k); setErrs({}); setServerErr(""); setSuccess(false); setOtpError(""); setOtpStep("phone"); setLoginMethod("email"); }}>{l}</button>
                 ))}
             </div>
 
             {/* Google Authentication Global Handler */}
             {tab !== "demo" && <GoogleAuthScript onSuccess={(res) => handleGoogleLogin(res, form.role)} onError={() => setServerErr("Google Login failed")} />}
-
-            {/* ── DEMO LOGIN TAB ── */}
-            {tab === "demo" && (
-                <div className="login-demo-grid">
-                    {Object.entries(ROLE_CONFIG).map(([role, cfg]) => {
-                        const user = USERS_DB.find(u => u.role === role);
-                        const isHov = hovered === role;
-                        return (
-                            <button key={role}
-                                onMouseEnter={() => setHovered(role)} onMouseLeave={() => setHovered(null)}
-                                onClick={async () => { setLoading(true); setServerErr(""); try { const r = await loginAsRole(role); if (r && !r.ok) setServerErr(r.error); } catch { setServerErr("Network error"); } setLoading(false); }}
-                                disabled={loading}
-                                style={{
-                                    background: isHov ? `rgba(${role === 'customer' ? '59,111,255' : role === 'seller' ? '0,229,160' : role === 'vendor' ? '245,158,11' : role === 'delivery' ? '255,107,53' : role === 'support' ? '255,184,0' : '139,92,246'}, 0.06)` : "rgba(15,20,35,0.6)",
-                                    border: `1.5px solid ${isHov ? cfg.color + "55" : "rgba(255,255,255,0.06)"}`,
-                                    borderRadius: 18, padding: "16px 18px", cursor: "pointer", textAlign: "left",
-                                    transition: "all 0.3s cubic-bezier(.4,0,.2,1)",
-                                    transform: isHov ? "translateY(-2px)" : "none",
-                                    boxShadow: isHov ? `0 12px 40px ${cfg.color}18` : "0 2px 8px rgba(0,0,0,0.2)",
-                                    fontFamily: "'Sora',sans-serif", display: "flex", flexDirection: "column", gap: 10,
-                                    backdropFilter: "blur(8px)",
-                                }}>
-                                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                                    <div style={{ width: 40, height: 40, borderRadius: 12, background: cfg.color + "18", border: `1px solid ${cfg.color}33`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 }}>{cfg.icon}</div>
-                                    <div>
-                                        <div style={{ color: cfg.color, fontWeight: 700, fontSize: 13 }}>{cfg.label}</div>
-                                        <div style={{ color: "rgba(255,255,255,0.35)", fontSize: 11, marginTop: 2 }}>{cfg.desc}</div>
-                                    </div>
-                                </div>
-                                {user && (
-                                    <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: 8, display: "flex", alignItems: "center", gap: 10 }}>
-                                        <div style={{ width: 28, height: 28, borderRadius: "50%", background: cfg.color + "22", border: `1.5px solid ${cfg.color}44`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 800, color: cfg.color }}>{user.avatar}</div>
-                                        <div style={{ flex: 1 }}>
-                                            <div style={{ color: "rgba(255,255,255,0.75)", fontSize: 12, fontWeight: 600 }}>{user.name}</div>
-                                            <div style={{ color: "rgba(255,255,255,0.25)", fontSize: 10 }}>{user.email}</div>
-                                        </div>
-                                        <span style={{ color: cfg.color, fontSize: 12, fontWeight: 700, opacity: isHov ? 1 : 0.6, transition: "opacity .2s" }}>Enter →</span>
-                                    </div>
-                                )}
-                            </button>
-                        );
-                    })}
-                </div>
-            )}
 
             {/* ── SIGN IN TAB ── */}
             {tab === "signin" && (
@@ -389,8 +354,8 @@ export function LoginPage() {
                     {/* Email + Password Sign In */}
                     {loginMethod === "email" && (
                         <form onSubmit={e => { e.preventDefault(); handleSignIn(); }} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-                            <FloatingInput id="si-email" label="Email Address" type="email" icon="✉" value={form.email} onChange={e => set("email", e.target.value)} onKeyDown={e => e.key === "Enter" && handleSignIn()} error={errs.email} autoFocus />
-                            <FloatingInput id="si-pw" label="Password" type={showPw ? "text" : "password"} icon="🔒" value={form.password} onChange={e => set("password", e.target.value)} onKeyDown={e => e.key === "Enter" && handleSignIn()} error={errs.password} rightSlot={pwToggle} />
+                            <FloatingInput id="si-email" label="Email Address" type="email" icon="✉" value={form.email} onChange={e => set("email", e.target.value)} onKeyDown={e => e.key === "Enter" && handleSignIn()} error={errs.email} autoFocus autoComplete="username" />
+                            <FloatingInput id="si-pw" label="Password" type={showPw ? "text" : "password"} icon="🔒" value={form.password} onChange={e => set("password", e.target.value)} onKeyDown={e => e.key === "Enter" && handleSignIn()} error={errs.password} rightSlot={pwToggle} autoComplete="current-password" />
                             {serverErr && <div style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)", borderRadius: 12, padding: "10px 14px", color: P.danger, fontSize: 13, fontWeight: 500 }}>⚠ {serverErr}</div>}
                             <button onClick={handleSignIn} disabled={loading} style={{ width: "100%", padding: "14px 0", background: loading ? "rgba(59,111,255,0.5)" : "linear-gradient(135deg,#3B6FFF,#6366F1)", border: "none", borderRadius: 14, color: "white", fontFamily: "'Sora',sans-serif", fontWeight: 700, fontSize: 15, cursor: loading ? "wait" : "pointer", boxShadow: "0 8px 28px rgba(59,111,255,0.35)", transition: "all .25s", letterSpacing: 0.3 }}>
                                 {loading ? <><span className="spinner" style={{ marginRight: 8 }} />Signing in...</> : "Sign In"}
@@ -450,100 +415,104 @@ export function LoginPage() {
                         </div>
                     )}
                 </div>
-            )}
+            )
+            }
 
             {/* ── SIGN UP TAB ── */}
-            {tab === "signup" && (
-                <div style={cardStyle}>
-                    {success ? (
-                        <div style={{ textAlign: "center", padding: "40px 0" }}>
-                            <div style={{ width: 64, height: 64, borderRadius: "50%", background: `${P.success}18`, border: `2px solid ${P.success}44`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 32, margin: "0 auto 16px" }}>✅</div>
-                            <h2 style={{ fontWeight: 800, fontSize: 20, marginBottom: 6 }}>Account Created!</h2>
-                            <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 13 }}>Check your email to verify, then sign in.</p>
-                        </div>
-                    ) : (
-                        <>
-                            <div style={{ textAlign: "center", marginBottom: 20 }}>
-                                <h2 style={{ fontWeight: 800, fontSize: 22, marginBottom: 6, color: "white" }}>Create account</h2>
-                                <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 13, margin: 0 }}>Join NearMart as your role</p>
+            {
+                tab === "signup" && (
+                    <div style={cardStyle}>
+                        {success ? (
+                            <div style={{ textAlign: "center", padding: "40px 0" }}>
+                                <div style={{ width: 64, height: 64, borderRadius: "50%", background: `${P.success}18`, border: `2px solid ${P.success}44`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 32, margin: "0 auto 16px" }}>✅</div>
+                                <h2 style={{ fontWeight: 800, fontSize: 20, marginBottom: 6 }}>Account Created!</h2>
+                                <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 13 }}>Check your email to verify, then sign in.</p>
                             </div>
-
-                            <form onSubmit={e => { e.preventDefault(); handleSignUp(); }} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                                <FloatingInput id="su-name" label="Full Name" icon="👤" value={form.name} onChange={e => set("name", e.target.value)} error={errs.name} autoFocus />
-                                <FloatingInput id="su-email" label="Email Address" type="email" icon="✉" value={form.email} onChange={e => set("email", e.target.value)} error={errs.email} />
-
-                                {/* Optional Phone + OTP — inline in signup */}
-                                <FloatingInput id="su-phone" label="Phone Number (optional, 10 digits)" type="tel" icon="📱" value={otpPhone} onChange={e => { setOtpPhone(e.target.value.replace(/\D/g, "").slice(0, 10)); setOtpError(""); }} />
-                                {otpPhone.trim().length >= 10 && !isLocked && (
-                                    <div style={{ background: "rgba(59,111,255,0.06)", border: "1px solid rgba(59,111,255,0.2)", borderRadius: 12, padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
-                                        <div style={{ fontSize: 12, color: "rgba(255,255,255,0.5)" }}>📲 Verify phone number via OTP for instant access</div>
-                                        {otpStep === "phone" && (
-                                            <button onClick={handleSendOtp} disabled={otpLoading} style={{ padding: "10px 16px", background: "linear-gradient(135deg,#3B6FFF,#6366F1)", border: "none", borderRadius: 10, color: "white", fontFamily: "'Sora',sans-serif", fontWeight: 700, fontSize: 13, cursor: otpLoading ? "wait" : "pointer" }}>
-                                                {otpLoading ? "Sending..." : "Send OTP to Phone"}
-                                            </button>
-                                        )}
-                                        {otpStep === "otp" && (
-                                            <div style={{ display: "flex", gap: 8 }}>
-                                                <FloatingInput id="su-otp-code" label="6-Digit OTP" icon="🔑" value={otpCode} onChange={e => { setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6)); setOtpError(""); }} onKeyDown={e => e.key === "Enter" && handleVerifyOtp(form.name.trim() || undefined)} autoFocus />
-                                                <button onClick={() => handleVerifyOtp(form.name.trim() || undefined)} disabled={otpLoading || otpCode.length < 6} style={{ padding: "0 16px", background: "linear-gradient(135deg,#3B6FFF,#6366F1)", border: "none", borderRadius: 10, color: "white", fontWeight: 700, cursor: otpLoading ? "wait" : "pointer", whiteSpace: "nowrap", fontSize: 13 }}>Verify</button>
-                                            </div>
-                                        )}
-                                        {otpError && <div style={{ color: P.danger, fontSize: 12 }}>⚠ {otpError}</div>}
-                                    </div>
-                                )}
-                                {isLocked && otpPhone.trim().length >= 10 && (
-                                    <div style={{ background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.2)", borderRadius: 10, padding: 10, color: P.danger, fontSize: 12 }}>
-                                        ⚠ Phone verification limit reached for today. Email verification will be sent after account creation.
-                                    </div>
-                                )}
-
-                                <div>
-                                    <FloatingInput id="su-pw" label="Password" type={showPw ? "text" : "password"} icon="🔒" value={form.password} onChange={e => set("password", e.target.value)} error={errs.password} rightSlot={pwToggle} />
-                                    <StrengthBar password={form.password} />
+                        ) : (
+                            <>
+                                <div style={{ textAlign: "center", marginBottom: 20 }}>
+                                    <h2 style={{ fontWeight: 800, fontSize: 22, marginBottom: 6, color: "white" }}>Create account</h2>
+                                    <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 13, margin: 0 }}>Join NearMart as your role</p>
                                 </div>
 
-                                {/* Role Selection */}
-                                <div>
-                                    <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>Select Your Role</div>
-                                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-                                        {ROLES_LIST.map(r => {
-                                            const cfg = ROLE_CONFIG[r];
-                                            const sel = form.role === r;
-                                            return (
-                                                <button key={r} onClick={() => set("role", r)} style={{
-                                                    padding: "10px 10px", borderRadius: 12,
-                                                    border: `1.5px solid ${sel ? cfg.color + "66" : "rgba(255,255,255,0.06)"}`,
-                                                    background: sel ? cfg.color + "0d" : "rgba(255,255,255,0.02)",
-                                                    cursor: "pointer", display: "flex", alignItems: "center", gap: 8,
-                                                    fontFamily: "'Sora',sans-serif", transition: "all 0.2s",
-                                                    boxShadow: sel ? `0 0 0 2px ${cfg.color}15` : "none",
-                                                }}>
-                                                    <span style={{ fontSize: 18 }}>{cfg.icon}</span>
-                                                    <span style={{ fontSize: 11, fontWeight: 700, color: sel ? cfg.color : "rgba(255,255,255,0.45)" }}>{cfg.label}</span>
+                                <form onSubmit={e => { e.preventDefault(); handleSignUp(); }} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                                    <FloatingInput id="su-name" label="Full Name" icon="👤" value={form.name} onChange={e => set("name", e.target.value)} error={errs.name} autoFocus />
+                                    <FloatingInput id="su-email" label="Email Address" type="email" icon="✉" value={form.email} onChange={e => set("email", e.target.value)} error={errs.email} />
+
+                                    {/* Optional Phone + OTP — inline in signup */}
+                                    <FloatingInput id="su-phone" label="Phone Number (optional, 10 digits)" type="tel" icon="📱" value={otpPhone} onChange={e => { setOtpPhone(e.target.value.replace(/\D/g, "").slice(0, 10)); setOtpError(""); }} />
+                                    {otpPhone.trim().length >= 10 && !isLocked && (
+                                        <div style={{ background: "rgba(59,111,255,0.06)", border: "1px solid rgba(59,111,255,0.2)", borderRadius: 12, padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
+                                            <div style={{ fontSize: 12, color: "rgba(255,255,255,0.5)" }}>📲 Verify phone number via OTP for instant access</div>
+                                            {otpStep === "phone" && (
+                                                <button onClick={handleSendOtp} disabled={otpLoading} style={{ padding: "10px 16px", background: "linear-gradient(135deg,#3B6FFF,#6366F1)", border: "none", borderRadius: 10, color: "white", fontFamily: "'Sora',sans-serif", fontWeight: 700, fontSize: 13, cursor: otpLoading ? "wait" : "pointer" }}>
+                                                    {otpLoading ? "Sending..." : "Send OTP to Phone"}
                                                 </button>
-                                            );
-                                        })}
+                                            )}
+                                            {otpStep === "otp" && (
+                                                <div style={{ display: "flex", gap: 8 }}>
+                                                    <FloatingInput id="su-otp-code" label="6-Digit OTP" icon="🔑" value={otpCode} onChange={e => { setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6)); setOtpError(""); }} onKeyDown={e => e.key === "Enter" && handleVerifyOtp(form.name.trim() || undefined)} autoFocus />
+                                                    <button onClick={() => handleVerifyOtp(form.name.trim() || undefined)} disabled={otpLoading || otpCode.length < 6} style={{ padding: "0 16px", background: "linear-gradient(135deg,#3B6FFF,#6366F1)", border: "none", borderRadius: 10, color: "white", fontWeight: 700, cursor: otpLoading ? "wait" : "pointer", whiteSpace: "nowrap", fontSize: 13 }}>Verify</button>
+                                                </div>
+                                            )}
+                                            {otpError && <div style={{ color: P.danger, fontSize: 12 }}>⚠ {otpError}</div>}
+                                        </div>
+                                    )}
+                                    {isLocked && otpPhone.trim().length >= 10 && (
+                                        <div style={{ background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.2)", borderRadius: 10, padding: 10, color: P.danger, fontSize: 12 }}>
+                                            ⚠ Phone verification limit reached for today. Email verification will be sent after account creation.
+                                        </div>
+                                    )}
+
+                                    <div>
+                                        <FloatingInput id="su-pw" label="Password" type={showPw ? "text" : "password"} icon="🔒" value={form.password} onChange={e => set("password", e.target.value)} error={errs.password} rightSlot={pwToggle} autoComplete="new-password" />
+                                        <StrengthBar password={form.password} />
                                     </div>
-                                    {errs.role && <span style={{ color: P.danger, fontSize: 11, marginTop: 4, display: "block" }}>{errs.role}</span>}
+
+                                    {/* Role Selection */}
+                                    <div>
+                                        <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>Select Your Role</div>
+                                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                                            {ROLES_LIST.map(r => {
+                                                const cfg = ROLE_CONFIG[r];
+                                                const sel = form.role === r;
+                                                return (
+                                                    <button key={r} onClick={() => set("role", r)} style={{
+                                                        padding: "10px 10px", borderRadius: 12,
+                                                        border: `1.5px solid ${sel ? cfg.color + "66" : "rgba(255,255,255,0.06)"}`,
+                                                        background: sel ? cfg.color + "0d" : "rgba(255,255,255,0.02)",
+                                                        cursor: "pointer", display: "flex", alignItems: "center", gap: 8,
+                                                        fontFamily: "'Sora',sans-serif", transition: "all 0.2s",
+                                                        boxShadow: sel ? `0 0 0 2px ${cfg.color}15` : "none",
+                                                    }}>
+                                                        <span style={{ fontSize: 18 }}>{cfg.icon}</span>
+                                                        <span style={{ fontSize: 11, fontWeight: 700, color: sel ? cfg.color : "rgba(255,255,255,0.45)" }}>{cfg.label}</span>
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                        {errs.role && <span style={{ color: P.danger, fontSize: 11, marginTop: 4, display: "block" }}>{errs.role}</span>}
+                                    </div>
+
+                                    {serverErr && <div style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)", borderRadius: 12, padding: "10px 14px", color: P.danger, fontSize: 13, fontWeight: 500 }}>⚠ {serverErr}</div>}
+
+                                    <button type="submit" disabled={loading} style={{ width: "100%", padding: "14px 0", background: loading ? "rgba(59,111,255,0.5)" : "linear-gradient(135deg,#3B6FFF,#6366F1)", border: "none", borderRadius: 14, color: "white", fontFamily: "'Sora',sans-serif", fontWeight: 700, fontSize: 15, cursor: loading ? "wait" : "pointer", boxShadow: "0 8px 28px rgba(59,111,255,0.35)", transition: "all .25s", letterSpacing: 0.3 }}>
+                                        {loading ? <><span className="spinner" style={{ marginRight: 8 }} />Creating account...</> : "Create Account"}
+                                    </button>
+                                </form>
+
+                                <div style={{ marginTop: 16, textAlign: "center" }}>
+                                    <button type="button" onClick={() => setTab("signin")} style={{ background: "none", border: "none", color: P.primary, cursor: "pointer", fontWeight: 700, fontFamily: "'Sora',sans-serif", fontSize: 12 }}>Already have an account? Sign In</button>
                                 </div>
-
-                                {serverErr && <div style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)", borderRadius: 12, padding: "10px 14px", color: P.danger, fontSize: 13, fontWeight: 500 }}>⚠ {serverErr}</div>}
-
-                                <button type="submit" disabled={loading} style={{ width: "100%", padding: "14px 0", background: loading ? "rgba(59,111,255,0.5)" : "linear-gradient(135deg,#3B6FFF,#6366F1)", border: "none", borderRadius: 14, color: "white", fontFamily: "'Sora',sans-serif", fontWeight: 700, fontSize: 15, cursor: loading ? "wait" : "pointer", boxShadow: "0 8px 28px rgba(59,111,255,0.35)", transition: "all .25s", letterSpacing: 0.3 }}>
-                                    {loading ? <><span className="spinner" style={{ marginRight: 8 }} />Creating account...</> : "Create Account"}
-                                </button>
-                            </form>
-
-                            <div style={{ marginTop: 16, textAlign: "center" }}>
-                                <button type="button" onClick={() => setTab("signin")} style={{ background: "none", border: "none", color: P.primary, cursor: "pointer", fontWeight: 700, fontFamily: "'Sora',sans-serif", fontSize: 12 }}>Already have an account? Sign In</button>
-                            </div>
-                        </>
-                    )}
-                </div>
-            )}
+                            </>
+                        )}
+                    </div>
+                )
+            }
 
             {/* Google Global Sign-In handler for Sign In email tab & Sign Up tab */}
-            {tab !== "demo" && loginMethod === "email" && <GoogleAuthScript onSuccess={(res) => handleGoogleLogin(res, form.role)} onError={() => setServerErr("Google Login failed")} />
+            {
+                tab !== "demo" && loginMethod === "email" && <GoogleAuthScript onSuccess={(res) => handleGoogleLogin(res, form.role)} onError={() => setServerErr("Google Login failed")} />
             }
 
             <p style={{ color: "rgba(255,255,255,0.12)", fontSize: 11, marginTop: 32, textAlign: "center", letterSpacing: 0.5 }}>
@@ -551,103 +520,104 @@ export function LoginPage() {
             </p>
 
             {/* ── REMOVED: Standalone Phone tab replaced by Email/Phone toggle inside Sign In & Sign Up ── */}
-            {false && (
-                <div style={cardStyle}>
-                    <div style={{ textAlign: "center", marginBottom: 24 }}>
-                        <h2 style={{ fontWeight: 800, fontSize: 22, marginBottom: 6, color: "white" }}>📱 Phone Login</h2>
-                        <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 13, margin: 0 }}>Sign in with OTP verification</p>
-                    </div>
+            {
+                false && (
+                    <div style={cardStyle}>
+                        <div style={{ textAlign: "center", marginBottom: 24 }}>
+                            <h2 style={{ fontWeight: 800, fontSize: 22, marginBottom: 6, color: "white" }}>📱 Phone Login</h2>
+                            <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 13, margin: 0 }}>Sign in with OTP verification</p>
+                        </div>
 
-                    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-                        {otpStep === "phone" && (
-                            <>
-                                {isLocked ? (
-                                    <div style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)", borderRadius: 12, padding: "20px", color: P.danger, fontSize: 14, fontWeight: 500, textAlign: "center", lineHeight: 1.5 }}>
-                                        ⚠ Phone verification disabled for today.<br />Please use 'Sign In' with email to continue.
+                        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                            {otpStep === "phone" && (
+                                <>
+                                    {isLocked ? (
+                                        <div style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)", borderRadius: 12, padding: "20px", color: P.danger, fontSize: 14, fontWeight: 500, textAlign: "center", lineHeight: 1.5 }}>
+                                            ⚠ Phone verification disabled for today.<br />Please use 'Sign In' with email to continue.
+                                        </div>
+                                    ) : (
+                                        <>
+                                            <FloatingInput id="otp-phone" label="Phone Number" type="tel" icon="📱" value={otpPhone}
+                                                onChange={e => { setOtpPhone(e.target.value); setOtpError(""); }}
+                                                onKeyDown={e => e.key === "Enter" && handleSendOtp()} autoFocus />
+
+                                            {otpError && <div style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)", borderRadius: 12, padding: "10px 14px", color: P.danger, fontSize: 13, fontWeight: 500 }}>⚠ {otpError}</div>}
+
+                                            <button onClick={handleSendOtp} disabled={otpLoading} style={{
+                                                width: "100%", padding: "14px 0",
+                                                background: otpLoading ? "rgba(59,111,255,0.5)" : "linear-gradient(135deg, #3B6FFF, #6366F1)",
+                                                border: "none", borderRadius: 14, color: "white",
+                                                fontFamily: "'Sora',sans-serif", fontWeight: 700, fontSize: 15,
+                                                cursor: otpLoading ? "wait" : "pointer",
+                                                boxShadow: "0 8px 28px rgba(59,111,255,0.35)", transition: "all .25s",
+                                            }}>
+                                                {otpLoading ? <>Sending...</> : "Send OTP"}
+                                            </button>
+                                        </>
+                                    )}
+                                </>
+                            )}
+
+                            {otpStep === "otp" && (
+                                <>
+                                    <div style={{ textAlign: "center", color: "rgba(255,255,255,0.5)", fontSize: 13, marginBottom: 8 }}>
+                                        OTP sent to <strong style={{ color: P.primary }}>{otpPhone}</strong>
                                     </div>
-                                ) : (
-                                    <>
-                                        <FloatingInput id="otp-phone" label="Phone Number" type="tel" icon="📱" value={otpPhone}
-                                            onChange={e => { setOtpPhone(e.target.value); setOtpError(""); }}
-                                            onKeyDown={e => e.key === "Enter" && handleSendOtp()} autoFocus />
 
-                                        {otpError && <div style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)", borderRadius: 12, padding: "10px 14px", color: P.danger, fontSize: 13, fontWeight: 500 }}>⚠ {otpError}</div>}
+                                    <FloatingInput id="otp-code" label="Enter 6-Digit OTP" icon="🔑" value={otpCode}
+                                        onChange={e => { setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6)); setOtpError(""); }}
+                                        onKeyDown={e => e.key === "Enter" && handleVerifyOtp()} autoFocus />
 
-                                        <button onClick={handleSendOtp} disabled={otpLoading} style={{
-                                            width: "100%", padding: "14px 0",
-                                            background: otpLoading ? "rgba(59,111,255,0.5)" : "linear-gradient(135deg, #3B6FFF, #6366F1)",
-                                            border: "none", borderRadius: 14, color: "white",
-                                            fontFamily: "'Sora',sans-serif", fontWeight: 700, fontSize: 15,
-                                            cursor: otpLoading ? "wait" : "pointer",
-                                            boxShadow: "0 8px 28px rgba(59,111,255,0.35)", transition: "all .25s",
-                                        }}>
-                                            {otpLoading ? <>Sending...</> : "Send OTP"}
-                                        </button>
-                                    </>
-                                )}
-                            </>
-                        )}
+                                    {otpError && <div style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)", borderRadius: 12, padding: "10px 14px", color: P.danger, fontSize: 13, fontWeight: 500 }}>⚠ {otpError}</div>}
 
-                        {otpStep === "otp" && (
-                            <>
-                                <div style={{ textAlign: "center", color: "rgba(255,255,255,0.5)", fontSize: 13, marginBottom: 8 }}>
-                                    OTP sent to <strong style={{ color: P.primary }}>{otpPhone}</strong>
-                                </div>
-
-                                <FloatingInput id="otp-code" label="Enter 6-Digit OTP" icon="🔑" value={otpCode}
-                                    onChange={e => { setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6)); setOtpError(""); }}
-                                    onKeyDown={e => e.key === "Enter" && handleVerifyOtp()} autoFocus />
-
-                                {otpError && <div style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)", borderRadius: 12, padding: "10px 14px", color: P.danger, fontSize: 13, fontWeight: 500 }}>⚠ {otpError}</div>}
-
-                                <button onClick={() => handleVerifyOtp()} disabled={otpLoading} style={{
-                                    width: "100%", padding: "14px 0",
-                                    background: otpLoading ? "rgba(59,111,255,0.5)" : "linear-gradient(135deg, #3B6FFF, #6366F1)",
-                                    border: "none", borderRadius: 14, color: "white",
-                                    fontFamily: "'Sora',sans-serif", fontWeight: 700, fontSize: 15,
-                                    cursor: otpLoading ? "wait" : "pointer",
-                                    boxShadow: "0 8px 28px rgba(59,111,255,0.35)", transition: "all .25s",
-                                }}>
-                                    {otpLoading ? <>Verifying...</> : "Verify OTP"}
-                                </button>
-
-                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                    <button onClick={() => setOtpStep("phone")} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.3)", cursor: "pointer", fontFamily: "'Sora',sans-serif", fontSize: 12 }}>← Change Number</button>
-                                    <button onClick={handleSendOtp} disabled={otpCooldown > 0 || otpLoading}
-                                        style={{ background: "none", border: "none", color: otpCooldown > 0 ? "rgba(255,255,255,0.2)" : P.primary, cursor: otpCooldown > 0 ? "default" : "pointer", fontFamily: "'Sora',sans-serif", fontSize: 12, fontWeight: 700 }}>
-                                        {otpCooldown > 0 ? `Resend in ${otpCooldown}s` : "Resend OTP"}
+                                    <button onClick={() => handleVerifyOtp()} disabled={otpLoading} style={{
+                                        width: "100%", padding: "14px 0",
+                                        background: otpLoading ? "rgba(59,111,255,0.5)" : "linear-gradient(135deg, #3B6FFF, #6366F1)",
+                                        border: "none", borderRadius: 14, color: "white",
+                                        fontFamily: "'Sora',sans-serif", fontWeight: 700, fontSize: 15,
+                                        cursor: otpLoading ? "wait" : "pointer",
+                                        boxShadow: "0 8px 28px rgba(59,111,255,0.35)", transition: "all .25s",
+                                    }}>
+                                        {otpLoading ? <>Verifying...</> : "Verify OTP"}
                                     </button>
-                                </div>
-                            </>
-                        )}
 
-                        {otpStep === "name" && (
-                            <>
-                                <div style={{ textAlign: "center", color: "rgba(255,255,255,0.5)", fontSize: 13, marginBottom: 8 }}>
-                                    Welcome! Please enter your name to complete registration.
-                                </div>
+                                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                        <button onClick={() => setOtpStep("phone")} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.3)", cursor: "pointer", fontFamily: "'Sora',sans-serif", fontSize: 12 }}>← Change Number</button>
+                                        <button onClick={handleSendOtp} disabled={otpCooldown > 0 || otpLoading}
+                                            style={{ background: "none", border: "none", color: otpCooldown > 0 ? "rgba(255,255,255,0.2)" : P.primary, cursor: otpCooldown > 0 ? "default" : "pointer", fontFamily: "'Sora',sans-serif", fontSize: 12, fontWeight: 700 }}>
+                                            {otpCooldown > 0 ? `Resend in ${otpCooldown}s` : "Resend OTP"}
+                                        </button>
+                                    </div>
+                                </>
+                            )}
 
-                                <FloatingInput id="otp-name" label="Your Name" icon="👤" value={otpName}
-                                    onChange={e => { setOtpName(e.target.value); setOtpError(""); }}
-                                    onKeyDown={e => e.key === "Enter" && handleVerifyOtp()} autoFocus />
+                            {otpStep === "name" && (
+                                <>
+                                    <div style={{ textAlign: "center", color: "rgba(255,255,255,0.5)", fontSize: 13, marginBottom: 8 }}>
+                                        Welcome! Please enter your name to complete registration.
+                                    </div>
 
-                                {otpError && <div style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)", borderRadius: 12, padding: "10px 14px", color: P.danger, fontSize: 13, fontWeight: 500 }}>⚠ {otpError}</div>}
+                                    <FloatingInput id="otp-name" label="Your Name" icon="👤" value={otpName}
+                                        onChange={e => { setOtpName(e.target.value); setOtpError(""); }}
+                                        onKeyDown={e => e.key === "Enter" && handleVerifyOtp()} autoFocus />
 
-                                <button onClick={() => handleVerifyOtp()} disabled={otpLoading || !otpName.trim()} style={{
-                                    width: "100%", padding: "14px 0",
-                                    background: !otpName.trim() ? "rgba(59,111,255,0.3)" : "linear-gradient(135deg, #3B6FFF, #6366F1)",
-                                    border: "none", borderRadius: 14, color: "white",
-                                    fontFamily: "'Sora',sans-serif", fontWeight: 700, fontSize: 15,
-                                    cursor: !otpName.trim() ? "not-allowed" : "pointer",
-                                    boxShadow: "0 8px 28px rgba(59,111,255,0.35)", transition: "all .25s",
-                                }}>
-                                    {otpLoading ? <>Creating account...</> : "Complete Registration"}
-                                </button>
-                            </>
-                        )}
+                                    {otpError && <div style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)", borderRadius: 12, padding: "10px 14px", color: P.danger, fontSize: 13, fontWeight: 500 }}>⚠ {otpError}</div>}
+
+                                    <button onClick={() => handleVerifyOtp()} disabled={otpLoading || !otpName.trim()} style={{
+                                        width: "100%", padding: "14px 0",
+                                        background: !otpName.trim() ? "rgba(59,111,255,0.3)" : "linear-gradient(135deg, #3B6FFF, #6366F1)",
+                                        border: "none", borderRadius: 14, color: "white",
+                                        fontFamily: "'Sora',sans-serif", fontWeight: 700, fontSize: 15,
+                                        cursor: !otpName.trim() ? "not-allowed" : "pointer",
+                                        boxShadow: "0 8px 28px rgba(59,111,255,0.35)", transition: "all .25s",
+                                    }}>
+                                        {otpLoading ? <>Creating account...</> : "Complete Registration"}
+                                    </button>
+                                </>
+                            )}
+                        </div>
                     </div>
-                </div>
-            )}
+                )}
         </div>
     );
 }

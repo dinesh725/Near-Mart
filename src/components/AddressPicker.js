@@ -27,6 +27,11 @@ export function AddressPicker({ value, onSelect, onClose }) {
     const [savedAddresses, setSavedAddresses] = useState(loadSaved);
     const [selected, setSelected] = useState(value || null);
 
+    // ── Additional Delivery Details ───────────────────────────────────────────
+    const [houseDetails, setHouseDetails] = useState("");
+    const [landmark, setLandmark] = useState("");
+    const [deliveryNote, setDeliveryNote] = useState("");
+
     // ── GPS Detect ────────────────────────────────────────────────────────────
     const detectGPS = useCallback(async () => {
         if (!navigator.geolocation) {
@@ -109,17 +114,26 @@ export function AddressPicker({ value, onSelect, onClose }) {
     // ── Save to localStorage ──────────────────────────────────────────────────
     const handleConfirm = useCallback(() => {
         if (!selected) return;
-        // Save to recents
+
+        // Save the base GPS/Search address to recents (without specific house/notes)
+        const baseAddress = { lat: selected.lat, lng: selected.lng, address: selected.address };
         const saved = loadSaved();
-        const already = saved.find(s => Math.abs(s.lat - selected.lat) < 0.0001 && Math.abs(s.lng - selected.lng) < 0.0001);
+        const already = saved.find(s => Math.abs(s.lat - baseAddress.lat) < 0.0001 && Math.abs(s.lng - baseAddress.lng) < 0.0001);
         if (!already) {
-            const updated = [selected, ...saved];
+            const updated = [baseAddress, ...saved];
             saveSaved(updated);
             setSavedAddresses(updated);
         }
-        onSelect(selected);
+
+        // Format final string for the backend Order schema
+        let finalAddress = selected.address;
+        if (houseDetails.trim()) finalAddress = `${houseDetails.trim()}, ${finalAddress}`;
+        if (landmark.trim()) finalAddress = `${finalAddress} | Landmark: ${landmark.trim()}`;
+        if (deliveryNote.trim()) finalAddress = `${finalAddress} | Note: ${deliveryNote.trim()}`;
+
+        onSelect({ ...baseAddress, address: finalAddress });
         onClose?.();
-    }, [selected, onSelect, onClose]);
+    }, [selected, houseDetails, landmark, deliveryNote, onSelect, onClose]);
 
 
 
@@ -320,6 +334,33 @@ export function AddressPicker({ value, onSelect, onClose }) {
                             <span style={{ marginRight: 8 }}>📍</span>
                             {selected.address.length > 80 ? selected.address.slice(0, 80) + "…" : selected.address}
                         </div>
+
+                        {/* Additional Address Details Form */}
+                        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 16 }}>
+                            <input
+                                className="p-input"
+                                placeholder="House / Flat / Block No."
+                                value={houseDetails}
+                                onChange={e => setHouseDetails(e.target.value)}
+                                style={{ fontSize: 14 }}
+                            />
+                            <input
+                                className="p-input"
+                                placeholder="Landmark (Optional)"
+                                value={landmark}
+                                onChange={e => setLandmark(e.target.value)}
+                                style={{ fontSize: 14 }}
+                            />
+                            <textarea
+                                className="p-input"
+                                placeholder="Any delivery instructions? (e.g. Leave at door)"
+                                value={deliveryNote}
+                                onChange={e => setDeliveryNote(e.target.value)}
+                                rows={2}
+                                style={{ fontSize: 14, resize: "none" }}
+                            />
+                        </div>
+
                         <button className="p-btn p-btn-primary w-100" style={{ minHeight: 46, fontSize: 15, fontWeight: 700 }} onClick={handleConfirm}>
                             ✓ Confirm Delivery Address
                         </button>

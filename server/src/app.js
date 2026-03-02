@@ -21,6 +21,7 @@ const sellerRoutes = require("./routes/sellers");
 const uploadRoutes = require("./routes/upload");
 const adminLogisticsRoutes = require("./routes/admin-logistics");
 const geocodingRoutes = require("./routes/geocoding");
+const vendorInventoryRoutes = require("./routes/vendorInventory");
 
 // Start tracking background jobs (OTP Resets)
 require("./services/cronJobs");
@@ -79,6 +80,7 @@ app.use("/api/sellers", sellerRoutes);
 app.use("/api/upload", uploadRoutes);
 app.use("/api/admin/logistics", adminLogisticsRoutes);
 app.use("/api/geocoding", geocodingRoutes);
+app.use("/api/vendor-inventory", vendorInventoryRoutes);
 
 // ── 404 Handler ───────────────────────────────────────────────────────────────
 app.use((req, res) => {

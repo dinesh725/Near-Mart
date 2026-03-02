@@ -60,6 +60,8 @@ export const StatusBadge = memo(({ status }) => {
     const m = {
         delivered: { label: "✓ Delivered", cls: "badge-emerald" },
         in_transit: { label: "↑ Transit", cls: "badge-sapphire" },
+        shipped: { label: "💨 Shipped", cls: "badge-sapphire" },
+        accepted: { label: "🚚 Awaiting Rider", cls: "badge-amber" },
         pending: { label: "⏳ Pending", cls: "badge-amber" },
         delayed: { label: "⚠ Delayed", cls: "badge-coral" },
         active: { label: "● Active", cls: "badge-emerald" },

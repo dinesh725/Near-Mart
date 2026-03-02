@@ -42,8 +42,18 @@ function StepBar({ step, total = 4 }) {
 }
 
 // ── 4-Step Purchase Order Wizard ──────────────────────────────────────────────
-function POWizard({ suppliers, onSubmit, onCancel }) {
+function POWizard({ vendorInventory, onSubmit, onCancel }) {
     const [step, setStep] = useState(0);
+
+    const suppliers = React.useMemo(() => {
+        const map = new Map();
+        vendorInventory.forEach(v => {
+            if (v.vendorId && !map.has(v.vendorId)) {
+                map.set(v.vendorId, { id: v.vendorId, name: v.vendorName, location: "Local Warehouse", rating: 5.0, paymentTerms: "Standard" });
+            }
+        });
+        return Array.from(map.values());
+    }, [vendorInventory]);
     const [selectedSupplier, setSelectedSupplier] = useState(null);
     const [items, setItems] = useState([{ name: "", qty: "", costPrice: "" }]);
 
@@ -110,8 +120,21 @@ function POWizard({ suppliers, onSubmit, onCancel }) {
                                 <span style={{ fontWeight: 700, fontSize: 12, color: T.gold }}>ITEM {i + 1}</span>
                                 {items.length > 1 && <button onClick={() => removeItem(i)} style={{ background: "none", border: "none", color: T.coral, cursor: "pointer", fontSize: 16 }}>✕</button>}
                             </div>
-                            <input className="btn btn-ghost" style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: "9px 12px", color: T.text, fontFamily: "'Sora',sans-serif", fontSize: 13, width: "100%" }}
-                                placeholder="Product name (e.g. Fresh Tomatoes)" value={item.name} onChange={e => setItem(i, "name", e.target.value)} />
+                            <select className="btn btn-ghost" style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: "9px 12px", color: T.text, fontFamily: "'Sora',sans-serif", fontSize: 13, width: "100%", appearance: "auto" }}
+                                value={item.name}
+                                onChange={e => {
+                                    const selected = vendorInventory.find(v => v.productName === e.target.value && v.vendorId === selectedSupplier.id);
+                                    if (selected) {
+                                        setItems(prev => prev.map((it, idx) => idx === i ? { ...it, name: selected.productName, costPrice: selected.costPrice } : it));
+                                    }
+                                }}>
+                                <option value="" disabled>Select a catalog item...</option>
+                                {vendorInventory.filter(v => v.vendorId === selectedSupplier?.id).map(v => (
+                                    <option key={v._id || v.id} value={v.productName}>
+                                        {v.emoji || "📦"} {v.productName} — ₹{v.costPrice}/{v.unit} (Stock: {v.stock})
+                                    </option>
+                                ))}
+                            </select>
                             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                                 <div>
                                     <label style={{ fontSize: 11, color: T.textDim, fontWeight: 700, display: "block", marginBottom: 4 }}>
@@ -204,14 +227,18 @@ function POWizard({ suppliers, onSubmit, onCancel }) {
 
 // ── Main Component ─────────────────────────────────────────────────────────────
 export const ProcurementTracker = memo(() => {
-    const { purchaseOrders, suppliers, createPO } = useNearMart();
+    const { purchaseOrders, vendorInventory, createPO } = useNearMart();
     const [showWizard, setShowWizard] = useState(false);
     const [successPO, setSuccessPO] = useState(null);
 
-    const handleSubmit = (details) => {
-        const po = createPO(details);
-        setSuccessPO(po);
-        setShowWizard(false);
+    const handleSubmit = async (details) => {
+        try {
+            const po = await createPO(details);
+            setSuccessPO(po);
+            setShowWizard(false);
+        } catch (err) {
+            alert(err.message || "Failed to dispatch Purchase Order.");
+        }
     };
 
     return (
@@ -240,7 +267,7 @@ export const ProcurementTracker = memo(() => {
             )}
 
             {showWizard && (
-                <POWizard suppliers={suppliers || []} onSubmit={handleSubmit} onCancel={() => setShowWizard(false)} />
+                <POWizard vendorInventory={vendorInventory || []} onSubmit={handleSubmit} onCancel={() => setShowWizard(false)} />
             )}
 
             {/* Existing POs table */}
@@ -274,7 +301,14 @@ export const ProcurementTracker = memo(() => {
                                     <td className="text-sm text-dim">{po.date}</td>
                                     <td className="text-sm text-dim">{po.expectedDelivery}</td>
                                     <td className="font-mono font-bold">{fmtFull(po.total)}</td>
-                                    <td><StatusBadge status={po.status} /></td>
+                                    <td>
+                                        <StatusBadge status={po.status} />
+                                        {po.deliveryOtp && ["accepted", "shipped", "in_transit"].includes(po.status) && (
+                                            <div style={{ marginTop: 6, fontSize: 11, background: "#0F1621", padding: "4px 8px", borderRadius: 4, border: `1px solid ${T.border}`, display: "inline-block" }}>
+                                                OTP: <span style={{ color: T.gold, fontWeight: 800, letterSpacing: 2 }}>{po.deliveryOtp}</span>
+                                            </div>
+                                        )}
+                                    </td>
                                     <td><StatusBadge status={po.paymentStatus === "paid" ? "paid" : "pending"} /></td>
                                 </tr>
                             ))}

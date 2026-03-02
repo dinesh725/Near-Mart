@@ -7,11 +7,7 @@ const STATUS_COLOR = { PENDING: P.warning, CONFIRMED: P.primary, PREPARING: "#8B
 
 export function AdminDashboard({ activeTab }) {
     const { orders, products, tickets, resetData } = useStore();
-    const [alerts, setAlerts] = useState([
-        { id: 1, level: "critical", title: "Payment Gateway Latency", body: "Razorpay p95 > 800ms. Auto-fallback to CCAvenue active.", dismissed: false, escalated: false },
-        { id: 2, level: "warning", title: "Rider Shortage — Pune", body: "Demand surge detected. Surge pricing 1.2x auto-enabled.", dismissed: false, escalated: false },
-        { id: 3, level: "info", title: "New City: Ahmedabad", body: "Dark Store partners signed. Go-live: Apr 5, 2025.", dismissed: false, escalated: false },
-    ]);
+    const [alerts, setAlerts] = useState([]);
 
     const totalGMV = orders.filter(o => o.status === "DELIVERED").reduce((s, o) => s + o.total, 0);
     const totalOrders = orders.length;
@@ -71,7 +67,7 @@ export function AdminDashboard({ activeTab }) {
     );
 
     const UsersTab = () => {
-        const { USERS_DB } = require("../../auth/AuthContext");
+        const USERS_DB = []; // Fetch live from backend in production
         return (
             <div className="col gap14">
                 <h2 style={{ fontWeight: 800, fontSize: 20 }}>👥 User Management ({USERS_DB.length})</h2>
@@ -128,14 +124,7 @@ export function AdminDashboard({ activeTab }) {
                 <span className="p-badge p-badge-danger" style={{ fontSize: 10 }}>ADMIN ONLY</span>
             </div>
             <div className="p-card col gap10">
-                {[
-                    { time: "03:45:21", level: "INFO", msg: `Order ORD-9011 placed by Priya Sharma — ₹349` },
-                    { time: "03:44:10", level: "WARN", msg: `Stock alert: Spinach (Fresh Bunch) = 0 units` },
-                    { time: "03:42:05", level: "INFO", msg: `Notification sent to seller for ORD-9011` },
-                    { time: "03:41:00", level: "INFO", msg: `Session started: admin@nearmart.in (ADMIN)` },
-                    { time: "03:40:33", level: "INFO", msg: `Order ORD-9010 delivered by Ramesh Kumar` },
-                    { time: "03:38:21", level: "WARN", msg: `Payment gateway latency p95 = 820ms` },
-                ].map((log, i) => (
+                {[].map((log, i) => (
                     <div key={i} style={{ fontFamily: "monospace", fontSize: 12, padding: "6px 0", borderBottom: `1px solid ${P.border}44`, display: "flex", gap: 12, alignItems: "flex-start" }}>
                         <span style={{ color: P.textMuted, flexShrink: 0 }}>{log.time}</span>
                         <span style={{ color: log.level === "WARN" ? P.warning : P.success, fontWeight: 700, flexShrink: 0 }}>[{log.level}]</span>

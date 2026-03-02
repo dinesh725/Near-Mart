@@ -26,6 +26,8 @@ export function DeliveryApp({ activeTab }) {
     const [searching, setSearching] = useState(false);
     const [activeOrder, setActiveOrder] = useState(null);
     const [availableOrders, setAvailableOrders] = useState([]);
+    const [availableB2BOrders, setAvailableB2BOrders] = useState([]);
+    const [taskTypeTab, setTaskTypeTab] = useState("b2c"); // "b2c" | "b2b"
     const [toast, setToast] = useState(null);
     const [earnings, setEarnings] = useState({ today: 1240, week: 6820, deliveries: 12 });
 
@@ -82,6 +84,27 @@ export function DeliveryApp({ activeTab }) {
             if (data.ok) {
                 setAvailableOrders(data.orders);
             }
+
+            // Phase 8: Fetch B2B Jobs asynchronously
+            const b2bRes = await fetch(`${process.env.REACT_APP_API_URL || "http://localhost:5000/api"}/procurement/transit/available`, {
+                headers: { "Authorization": `Bearer ${token}` }
+            });
+            const b2bData = await b2bRes.json();
+            if (b2bData.ok) {
+                const mappedB2B = b2bData.jobs.map(job => ({
+                    _id: job._id,
+                    isB2B: true,
+                    storeName: job.vendorName,
+                    address: `${job.sellerName} [Wholesale Warehouse]`,
+                    items: job.items,
+                    total: job.deliveryFee || 250,
+                    status: "READY_FOR_PICKUP",
+                    pickupLocation: null,
+                    dropLocation: null
+                }));
+                setAvailableB2BOrders(mappedB2B);
+            }
+
         } catch (err) { console.error("Failed to fetch tasks", err); }
     }, []);
 
@@ -193,6 +216,25 @@ export function DeliveryApp({ activeTab }) {
             const token = localStorage.getItem("nm_access_token");
             let accepted = false;
 
+            // Phase 8: B2B Routing Hijack
+            if (order.isB2B) {
+                const res = await fetch(`${process.env.REACT_APP_API_URL || "http://localhost:5000/api"}/procurement/${orderId}/pickup`, {
+                    method: "PATCH",
+                    headers: { "Authorization": `Bearer ${token}` }
+                });
+                const data = await res.json();
+                if (data.ok) {
+                    setActiveOrder({ ...order, status: "OUT_FOR_DELIVERY" });
+                    setAvailableB2BOrders(prev => prev.filter(o => o._id !== orderId));
+                    setToast({ msg: `Navigating to Wholesale pickup`, icon: "🗺" });
+                    startTracking();
+                } else {
+                    setToast({ msg: "Failed: " + data.error, icon: "❌" });
+                }
+                setAccepting(null);
+                return;
+            }
+
             // Try backend API first (for real DB orders)
             if (token && order._id) {
                 try {
@@ -289,8 +331,34 @@ export function DeliveryApp({ activeTab }) {
     }, [liveLocation, currentOrder, haversineDistance]);
 
     // Geofence: attempt delivery confirmation — socket first, local haversine fallback
-    const handleConfirmDelivery = useCallback(() => {
+    const handleConfirmDelivery = useCallback(async () => {
         if (!currentOrder) return;
+
+        // Phase 8: High-Value SECURE OTP Check for wholesale deliveries
+        if (currentOrder.isB2B) {
+            const otp = window.prompt("SECURE DROP-OFF: Please enter the 6-digit OTP provided by the Seller to release this wholesale cargo.");
+            if (!otp) return;
+
+            const token = localStorage.getItem("nm_access_token");
+            try {
+                const res = await fetch(`${process.env.REACT_APP_API_URL || "http://localhost:5000/api"}/procurement/${currentOrder._id}/deliver`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+                    body: JSON.stringify({ otp })
+                });
+                const data = await res.json();
+                if (data.ok) {
+                    setToast({ msg: "Wholesale Delivery Complete!", icon: "🎉" });
+                    setEarnings(e => ({ today: e.today + currentOrder.total, week: e.week + currentOrder.total, deliveries: e.deliveries + 1 }));
+                    setActiveOrder(null);
+                    stopTracking();
+                } else {
+                    setToast({ msg: `OTP Rejected: ${data.error}`, icon: "❌" });
+                }
+            } catch (err) { setToast({ msg: "Network error on delivery.", icon: "❌" }); }
+            return;
+        }
+
         const dropLoc = currentOrder.dropLocation;
         if (!dropLoc) { setToast({ msg: "No delivery location set", icon: "❌" }); return; }
 
@@ -424,22 +492,28 @@ export function DeliveryApp({ activeTab }) {
 
     const renderTasks = (
         <div className="col gap14">
-            <h2 style={{ fontWeight: 800, fontSize: 20 }}>📋 Available Tasks ({readyOrders.length})</h2>
+            <h2 style={{ fontWeight: 800, fontSize: 20 }}>📋 Available Tasks</h2>
+
+            <div style={{ display: "flex", gap: 8, marginBottom: 8, background: P.card, padding: 4, borderRadius: 12 }}>
+                <button onClick={() => setTaskTypeTab("b2c")} style={{ flex: 1, padding: "10px", borderRadius: 8, background: taskTypeTab === "b2c" ? P.primary : "transparent", color: taskTypeTab === "b2c" ? "#fff" : P.textMuted, border: "none", fontWeight: 700, cursor: "pointer", transition: "all 0.2s" }}>B2C Customers</button>
+                <button onClick={() => setTaskTypeTab("b2b")} style={{ flex: 1, padding: "10px", borderRadius: 8, background: taskTypeTab === "b2b" ? P.accent : "transparent", color: taskTypeTab === "b2b" ? "#fff" : P.textMuted, border: "none", fontWeight: 700, cursor: "pointer", transition: "all 0.2s" }}>B2B Wholesale</button>
+            </div>
+
             {!online ? (
                 <div style={{ textAlign: "center", padding: "40px 0", color: P.textMuted }}>
                     <div style={{ fontSize: 40 }}>🌙</div><p>Go online to see tasks</p>
                 </div>
-            ) : readyOrders.length === 0 ? (
+            ) : (taskTypeTab === "b2c" ? readyOrders : availableB2BOrders).length === 0 ? (
                 <div style={{ textAlign: "center", padding: "40px 0", color: P.textMuted }}>
-                    <div style={{ fontSize: 40 }}>📭</div><p>No tasks right now</p>
+                    <div style={{ fontSize: 40 }}>📭</div><p>No {taskTypeTab.toUpperCase()} tasks right now</p>
                 </div>
-            ) : readyOrders.map((o, idx) => {
+            ) : (taskTypeTab === "b2c" ? readyOrders : availableB2BOrders).map((o, idx) => {
                 const oid = o._id || o.id || `fallback-${idx}`;
                 return (
-                    <div key={`task-${oid}`} className="p-card">
+                    <div key={`task-${oid}`} className="p-card" style={{ borderLeft: o.isB2B ? `4px solid ${P.accent}` : "none" }}>
                         <div className="row-between mb8">
-                            <div style={{ fontWeight: 700 }}>#{String(oid).slice(-6).toUpperCase()}</div>
-                            <div style={{ color: P.success, fontWeight: 700 }}>+₹{Math.round((o.total || 0) * 0.08) + 30}</div>
+                            <div style={{ fontWeight: 700 }}>#{String(oid).slice(-6).toUpperCase()} {o.isB2B && <span style={{ fontSize: 10, background: P.accent + "33", color: P.accent, padding: "2px 6px", borderRadius: 4, marginLeft: 6 }}>HEAVY B2B</span>}</div>
+                            <div style={{ color: P.success, fontWeight: 700 }}>+₹{o.isB2B ? o.total : Math.round((o.total || 0) * 0.08) + 30}</div>
                         </div>
                         <div style={{ fontSize: 13, color: P.textMuted, marginBottom: 4 }}>🏪 {o.storeName || "Store"} → 🏠 {o.address || "Customer"}</div>
                         <div style={{ fontSize: 13, marginBottom: 12 }}>{(o.items || []).map(i => `${i.emoji || "📦"}×${i.qty}`).join(" ")}</div>

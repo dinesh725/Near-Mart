@@ -58,8 +58,13 @@ const userSchema = new mongoose.Schema({
     },
     supplierId: { type: String },
     companyName: { type: String },
+    paymentTerms: { type: String, default: "" }, // e.g. "Net 14"
+    city: { type: String, default: "" },
+    payoutAccount: { type: String, default: "" },
     // ── Delivery Partner Fields ──────────────────────────────────────
     vehicle: String,
+    vehicleType: { type: String, enum: ["bike", "scooter", "van", "mini_truck", "large_truck"], default: "bike" },
+    weightCapacity: { type: Number, default: 20 }, // in KG
     licenseNo: String,
     isOnline: { type: Boolean, default: false },
     lastLocationUpdate: Date,
@@ -71,6 +76,7 @@ const userSchema = new mongoose.Schema({
     activeOrderId: { type: mongoose.Schema.Types.ObjectId, ref: "Order", default: null },
     rating: { type: Number, default: 5.0 },
     department: { type: String },
+    shift: { type: String, default: "" }, // e.g. "9:00 AM - 6:00 PM"
     accessLevel: { type: String },
     loyaltyPoints: { type: Number, default: 0 },
     totalOrders: { type: Number, default: 0 },

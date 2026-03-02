@@ -161,7 +161,13 @@ router.patch("/location", authenticate,
 router.patch("/profile", authenticate,
     async (req, res, next) => {
         try {
-            const allowed = ["name", "phone", "address", "storeName", "vehicleType", "vehicleNo"];
+            const allowed = [
+                "name", "phone", "address",
+                "storeName", "storeId", "city", "payoutAccount", "businessHours",
+                "companyName", "supplierId", "paymentTerms",
+                "vehicleType", "vehicleNo",
+                "department", "shift"
+            ];
             for (const key of allowed) {
                 if (req.body[key] !== undefined) req.user[key] = req.body[key];
             }
