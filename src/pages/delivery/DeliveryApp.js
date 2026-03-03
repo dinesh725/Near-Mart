@@ -386,7 +386,7 @@ export function DeliveryApp({ activeTab }) {
             setGeofenceStatus(prev => ({ ...prev, delivery: { valid: true, distance: 0 } }));
             handleDelivered();
         }
-    }, [liveLocation, currentOrder, haversineDistance, handleDelivered]);
+    }, [liveLocation, currentOrder, haversineDistance, handleDelivered, stopTracking]);
 
     // ── Render tab as inline JSX (NOT as sub-components — avoids infinite loop) ──
     const renderMap = (

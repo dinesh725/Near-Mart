@@ -69,7 +69,7 @@ export function ProfilePage() {
         setEditing(false);
         setSaveMsg("Profile updated!");
         setTimeout(() => setSaveMsg(null), 3000);
-    }, [editForm, updateUser]);
+    }, [editForm, updateUser, role]);
 
     const handlePwChange = useCallback(() => {
         setPwMsg(null);

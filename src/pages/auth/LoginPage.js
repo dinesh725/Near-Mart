@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useMemo, useEffect } from "react";
-import { useAuth, DEMO_ROLES as USERS_DB } from "../../auth/AuthContext";
+import { useAuth } from "../../auth/AuthContext";
 import api from "../../api/client";
 import { P } from "../../theme/theme";
 
@@ -147,10 +147,9 @@ function StrengthBar({ password }) {
 }
 
 export function LoginPage() {
-    const { loginAsRole, login, signup, loginWithGoogle } = useAuth();
+    const { login, signup, loginWithGoogle } = useAuth();
     const [tab, setTab] = useState("signin");
     const [loginMethod, setLoginMethod] = useState("email"); // "email" | "phone"
-    const [hovered, setHovered] = useState(null);
     const [form, setForm] = useState({ name: "", email: "", password: "", role: "customer" });
     const [errs, setErrs] = useState({});
     const [serverErr, setServerErr] = useState("");
