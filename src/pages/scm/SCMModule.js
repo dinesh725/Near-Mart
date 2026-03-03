@@ -1,8 +1,9 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useMemo } from "react";
 import { T } from "../../theme/theme";
 import { useToast } from "../../utils/helpers";
 import { ScmToast } from "../../components/ScmComponents";
 import { MobileNav, HamburgerBtn } from "../../components/MobileNav";
+import { useAuth } from "../../auth/AuthContext";
 
 import { OverviewDashboard } from "./OverviewDashboard";
 import { SupplierManagement } from "./SupplierManagement";
@@ -13,34 +14,57 @@ import { InventoryIntelligence } from "./InventoryIntelligence";
 import { AccountingFinance } from "./AccountingFinance";
 import { SupplyChainView, AdminOversight } from "./SupplyChainView";
 
-export const SCM_TABS = [
-    { key: "overview", label: "Overview", icon: "⊙" },
-    { key: "suppliers", label: "Suppliers", icon: "🏭", count: 4 },
-    { key: "procurement", label: "Purchase Orders", icon: "📋", count: 4 },
-    { key: "profit", label: "Profit Engine", icon: "💡" },
-    { key: "pricing", label: "Smart Pricing", icon: "🎯", count: 2 },
-    { key: "inventory", label: "Inventory", icon: "📦", count: 3 },
-    { key: "accounting", label: "Accounting", icon: "📊" },
-    { key: "supplychain", label: "Supply Chain", icon: "🔗" },
-    { key: "admin", label: "Admin", icon: "🛡", count: 4 },
+// ── Role → Tab access matrix ─────────────────────────────────────────────────
+// Each tab lists which roles can see it.
+// Seller  = full SCM access (except Admin Oversight)
+// Vendor  = Overview, Purchase Orders, Supply Chain only
+// Admin   = Overview, Suppliers, Purchase Orders, Supply Chain, Admin Oversight
+// Support = blocked entirely at App.js level (never reaches here)
+const ALL_SCM_TABS = [
+    { key: "overview", label: "Overview", icon: "⊙", roles: ["seller", "vendor", "admin"] },
+    { key: "suppliers", label: "Suppliers", icon: "🏭", roles: ["seller", "admin"], count: 4 },
+    { key: "procurement", label: "Purchase Orders", icon: "📋", roles: ["seller", "vendor", "admin"], count: 4 },
+    { key: "profit", label: "Profit Engine", icon: "💡", roles: ["seller"] },
+    { key: "pricing", label: "Smart Pricing", icon: "🎯", roles: ["seller"], count: 2 },
+    { key: "inventory", label: "Inventory", icon: "📦", roles: ["seller"], count: 3 },
+    { key: "accounting", label: "Accounting", icon: "📊", roles: ["seller"] },
+    { key: "supplychain", label: "Supply Chain", icon: "🔗", roles: ["seller", "vendor", "admin"] },
+    { key: "admin", label: "Admin", icon: "🛡", roles: ["admin"], count: 4 },
 ];
 
-// Mobile nav shows only primary 5 tabs; the rest are in the drawer
-const MOBILE_TABS = [
-    { key: "overview", label: "Overview", icon: "⊙" },
-    { key: "suppliers", label: "Suppliers", icon: "🏭" },
-    { key: "procurement", label: "Orders", icon: "📋" },
-    { key: "profit", label: "Profit", icon: "💡" },
-    { key: "more", label: "More", icon: "☰" },
-];
+// Keep the old export name so nothing else breaks
+export const SCM_TABS = ALL_SCM_TABS;
 
 export const SCMModule = () => {
+    const { user } = useAuth();
+    const role = user?.role || "";
+
+    // Filter tabs to only those the current role is allowed to see
+    const visibleTabs = useMemo(
+        () => ALL_SCM_TABS.filter(t => t.roles.includes(role)),
+        [role]
+    );
+
+    // Mobile nav: first 4 visible tabs + "more" drawer
+    const mobileTabs = useMemo(() => {
+        const first4 = visibleTabs.slice(0, 4).map(t => ({
+            key: t.key, label: t.label.length > 8 ? t.label.split(" ")[0] : t.label, icon: t.icon
+        }));
+        if (visibleTabs.length > 4) first4.push({ key: "more", label: "More", icon: "☰" });
+        return first4;
+    }, [visibleTabs]);
+
     const [activeTab, setActiveTab] = useState("overview");
     const [drawerOpen, setDrawerOpen] = useState(false);
     const [toast, , clearToast] = useToast();
 
+    // Allowed tab keys for this role
+    const allowedKeys = useMemo(() => new Set(visibleTabs.map(t => t.key)), [visibleTabs]);
+
     const renderContent = useCallback(() => {
-        switch (activeTab) {
+        // If user somehow lands on a tab they shouldn't see, default to overview
+        const tab = allowedKeys.has(activeTab) ? activeTab : "overview";
+        switch (tab) {
             case "overview": return <OverviewDashboard setActiveTab={setActiveTab} />;
             case "suppliers": return <SupplierManagement />;
             case "procurement": return <ProcurementTracker />;
@@ -52,15 +76,13 @@ export const SCMModule = () => {
             case "admin": return <AdminOversight />;
             default: return <OverviewDashboard setActiveTab={setActiveTab} />;
         }
-    }, [activeTab]);
+    }, [activeTab, allowedKeys]);
 
     const handleMobileNav = (key) => {
         if (key === "more") { setDrawerOpen(o => !o); return; }
         setActiveTab(key);
         setDrawerOpen(false);
     };
-
-
 
     return (
         <div className="scm-root">
@@ -77,9 +99,9 @@ export const SCMModule = () => {
                     </div>
                 </div>
 
-                {/* Desktop tab strip */}
+                {/* Desktop tab strip — only shows role-allowed tabs */}
                 <div className="tab-nav">
-                    {SCM_TABS.map(t => (
+                    {visibleTabs.map(t => (
                         <button key={t.key} className={`tab-btn ${activeTab === t.key ? "active" : ""}`} onClick={() => setActiveTab(t.key)}>
                             <span style={{ fontSize: 14, opacity: .7 }}>{t.icon}</span>
                             {t.label}
@@ -98,10 +120,10 @@ export const SCMModule = () => {
                 </div>
             </div>
 
-            {/* ── Mobile tab drawer ── */}
+            {/* ── Mobile tab drawer — only shows role-allowed tabs ── */}
             {drawerOpen && (
                 <div className="scm-tab-drawer">
-                    {SCM_TABS.map(t => (
+                    {visibleTabs.map(t => (
                         <div
                             key={t.key}
                             className={`scm-tab-drawer-item ${activeTab === t.key ? "active" : ""}`}
@@ -119,8 +141,8 @@ export const SCMModule = () => {
 
             {/* ── Mobile bottom nav ── */}
             <MobileNav
-                items={MOBILE_TABS}
-                activeKey={MOBILE_TABS.find(t => t.key === activeTab) ? activeTab : "more"}
+                items={mobileTabs}
+                activeKey={mobileTabs.find(t => t.key === activeTab) ? activeTab : "more"}
                 onSelect={handleMobileNav}
                 accentColor={T.gold}
             />

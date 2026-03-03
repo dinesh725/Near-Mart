@@ -24,7 +24,7 @@ export function SCMAccessDenied() {
             </h1>
             <p style={{ color: P.textMuted, fontSize: 14, textAlign: "center", maxWidth: 340, lineHeight: 1.7, marginBottom: 24 }}>
                 The <strong style={{ color: P.text }}>Supply Chain Management</strong> module is only
-                available to <strong style={{ color: P.text }}>Sellers, Vendors, Support Agents, and Admins</strong>.
+                available to <strong style={{ color: P.text }}>Sellers, Vendors, and Admins</strong>.
             </p>
 
             <div style={{
