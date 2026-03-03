@@ -496,7 +496,7 @@ export function GlobalStoreProvider({ children }) {
             const API_BASE = process.env.REACT_APP_API_URL || "http://localhost:5000/api";
 
             if (token) {
-                const res = await fetch(`${API_BASE}/procurement/${procurementId}/fulfill`, {
+                const res = await fetch(`${API_BASE}/procurement/${procurementId}/accept`, {
                     method: "PATCH",
                     headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }
                 });
@@ -511,27 +511,13 @@ export function GlobalStoreProvider({ children }) {
         }
 
         setProcurement(prev => prev.map(p =>
-            p.id === procurementId ? { ...p, status: "fulfilled" } : p
+            p.id === procurementId ? { ...p, status: "accepted" } : p
         ));
 
-        // Find product and add stock to seller locally
-        const rec = procurement.find(p => p.id === procurementId);
-        if (rec && rec.items) {
-            rec.items.forEach(item => {
-                const prod = products.find(p => p.name === item.productName);
-                if (prod) updateStock(prod.id, item.qty);
-
-                // Deduct vendor inventory locally
-                setVendorInventory(prev => prev.map(v =>
-                    v.productName === item.productName && v.vendorId === rec.vendorId
-                        ? { ...v, stock: Math.max(0, v.stock - item.qty) }
-                        : v
-                ));
-            });
-            notifyRole("seller", `📦 Stock refilled: ${rec.items.length} bulk items delivered`, "success");
-        }
+        // Note: Stock is no longer instantly injected here. 
+        // It's deferred until the Delivery Rider successfully validates the OTP at drop-off.
         return true;
-    }, [procurement, products, updateStock, notifyRole]);
+    }, [notifyRole]);
 
     const createProcurementRequest = useCallback((details) => {
         const rec = {
