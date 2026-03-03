@@ -17,18 +17,18 @@ import { SupplyChainView, AdminOversight } from "./SupplyChainView";
 // ── Role → Tab access matrix ─────────────────────────────────────────────────
 // Each tab lists which roles can see it.
 // Seller  = full SCM access (except Admin Oversight)
-// Vendor  = Overview, Purchase Orders, Supply Chain only
-// Admin   = Overview, Suppliers, Purchase Orders, Supply Chain, Admin Oversight
-// Support = blocked entirely at App.js level (never reaches here)
+// Admin   = Overview, Suppliers, Purchase Orders, Supply Chain, Admin Oversight (no financials)
+// Vendor  = blocked at App.js level — use VendorPortal instead
+// Support = blocked at App.js level
 const ALL_SCM_TABS = [
-    { key: "overview", label: "Overview", icon: "⊙", roles: ["seller", "vendor", "admin"] },
+    { key: "overview", label: "Overview", icon: "⊙", roles: ["seller", "admin"] },
     { key: "suppliers", label: "Suppliers", icon: "🏭", roles: ["seller", "admin"], count: 4 },
-    { key: "procurement", label: "Purchase Orders", icon: "📋", roles: ["seller", "vendor", "admin"], count: 4 },
+    { key: "procurement", label: "Purchase Orders", icon: "📋", roles: ["seller", "admin"], count: 4 },
     { key: "profit", label: "Profit Engine", icon: "💡", roles: ["seller"] },
     { key: "pricing", label: "Smart Pricing", icon: "🎯", roles: ["seller"], count: 2 },
     { key: "inventory", label: "Inventory", icon: "📦", roles: ["seller"], count: 3 },
     { key: "accounting", label: "Accounting", icon: "📊", roles: ["seller"] },
-    { key: "supplychain", label: "Supply Chain", icon: "🔗", roles: ["seller", "vendor", "admin"] },
+    { key: "supplychain", label: "Supply Chain", icon: "🔗", roles: ["seller", "admin"] },
     { key: "admin", label: "Admin", icon: "🛡", roles: ["admin"], count: 4 },
 ];
 
@@ -40,6 +40,7 @@ export const SCMModule = () => {
     const role = user?.role || "";
 
     // Filter tabs to only those the current role is allowed to see
+    // Only seller and admin can reach this component (vendor/support blocked at App.js)
     const visibleTabs = useMemo(
         () => ALL_SCM_TABS.filter(t => t.roles.includes(role)),
         [role]

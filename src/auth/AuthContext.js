@@ -15,7 +15,7 @@ export const DEMO_ROLES = [
 export const USERS_DB = DEMO_ROLES;
 
 // ── Roles that can access SCM ──────────────────────────────────────────────────
-export const SCM_ALLOWED_ROLES = ["seller", "vendor", "admin"];
+export const SCM_ALLOWED_ROLES = ["seller", "admin"];
 
 // ── Permission Map ─────────────────────────────────────────────────────────────
 export const PERMISSIONS = {
