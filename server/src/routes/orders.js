@@ -85,8 +85,11 @@ router.post("/",
 
             const subtotal = orderItems.reduce((sum, i) => sum + i.price * i.qty, 0);
 
-            // ── Determine pickup location (seller) ──────────────────────────
-            let pickupLoc = { lat: 19.0596, lng: 72.8295, address: "NearMart Dark Store #412, Mumbai", type: "Point", coordinates: [72.8295, 19.0596] };
+            // ── Determine pickup location (seller's real GPS from DB) ────────
+            // Initialize as null — we require sellerID to get a real location.
+            // Orders without a valid seller location will have pickupLocation=null
+            // and the frontend TrackOrderModal will show "Map routing in progress..."
+            let pickupLoc = null;
             let seller = null;
 
             if (sellerId) {
@@ -101,6 +104,7 @@ router.post("/",
                     };
                 }
             }
+
 
             // ── Drop location from request ───────────────────────────────────
             let dropLoc = { lat: null, lng: null, address, type: "Point", coordinates: [] };

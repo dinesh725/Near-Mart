@@ -203,15 +203,20 @@ export function GlobalStoreProvider({ children }) {
         const newOrder = {
             id: ordId,
             customerId, customerName,
-            storeId: "STORE-412", storeName: "Dark Store #412",
-            pickupLocation: { lat: 19.0596, lng: 72.8295 },
-            dropLocation: { lat: 19.0660 + (Math.random() * 0.01 - 0.005), lng: 72.8350 + (Math.random() * 0.01 - 0.005) },
+            storeId: null, storeName: null,
+            // pickupLocation and dropLocation are null for locally-created orders.
+            // Real GPS coordinates are assigned by the backend when the order is
+            // submitted via POST /api/orders. TrackOrderModal checks for these before
+            // rendering the map — if null it shows "Map routing in progress..." safely.
+            pickupLocation: null,
+            dropLocation: null,
             items: cartItems, total,
             status: ORDER_STATUS.PENDING,
             riderId: null, riderName: null,
             createdAt: Date.now(), updatedAt: Date.now(),
             address, paymentMethod, flagged: false,
         };
+
 
         // Dedup guard — prevent inserting if same id already exists
         setOrders(prev => {

@@ -110,11 +110,14 @@ export function ProductDetailSheet({ product: p, onClose }) {
                     <div style={{ display: "flex", alignItems: "center", gap: 12, background: P.surface, borderRadius: 12, padding: "12px 14px" }}>
                         <div style={{ width: 40, height: 40, borderRadius: 10, background: P.primary + "22", border: `1px solid ${P.primary}33`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}>🏪</div>
                         <div style={{ flex: 1 }}>
-                            <div style={{ fontWeight: 700, fontSize: 13 }}>Dark Store #412</div>
-                            <div style={{ fontSize: 11, color: P.textMuted }}>Bandra West, Mumbai · ⭐ 4.8</div>
+                            <div style={{ fontWeight: 700, fontSize: 13 }}>{p.storeName || p.sellerName || "NearMart Partner Store"}</div>
+                            <div style={{ fontSize: 11, color: P.textMuted }}>
+                                {p.sellerLocation || p.storeLocation || "Local seller"} · ⭐ {p.sellerRating || p.rating || 4.8}
+                            </div>
                         </div>
                         <span style={{ fontSize: 11, color: P.success, fontWeight: 600 }}>Open</span>
                     </div>
+
                 </div>
 
                 {/* Sticky Footer */}

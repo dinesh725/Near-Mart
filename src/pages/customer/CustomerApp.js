@@ -277,7 +277,7 @@ export function CustomerApp({ activeTab, setActiveTab }) {
                 <div style={{ fontSize: 13, color: "rgba(255,255,255,0.7)", marginBottom: 4 }}>Welcome back,</div>
                 <div style={{ fontSize: 20, fontWeight: 800, color: "white" }}>{user?.name} 👋</div>
                 <div style={{ fontSize: 13, color: "rgba(255,255,255,0.75)", marginTop: 6 }}>
-                    📍 {user?.address || "Bandra West, Mumbai"} &nbsp;·&nbsp; 💰 Wallet: ₹{user?.walletBalance?.toLocaleString("en-IN") || "2,500"}
+                    📍 {user?.address || (customerGps ? `${customerGps.lat.toFixed(4)}°N, ${customerGps.lng.toFixed(4)}°E` : "Detecting location...")} &nbsp;·&nbsp; 💰 Wallet: ₹{user?.walletBalance?.toLocaleString("en-IN") || "0"}
                 </div>
 
             </div>
