@@ -525,7 +525,7 @@ export function SellerDashboard({ activeTab }) {
         <div className="col gap14">
             <div className="row-between">
                 <h2 style={{ fontWeight: 800, fontSize: 20 }}>📦 Inventory ({products.length} SKUs)</h2>
-                <button className="p-btn p-btn-ghost p-btn-sm" onClick={() => { setModal({ mode: "add" }); setForm({ emoji: "🛒", name: "", sellingPrice: "", costPrice: "", stock: "", category: "Dairy" }); }}>+ Add</button>
+                <button className="p-btn p-btn-ghost p-btn-sm" onClick={() => { setModal({ mode: "add" }); setForm({ emoji: "🛒", name: "", sellingPrice: "", mrp: "", costPrice: "", stock: "", category: "Dairy", description: "", weight: "", tags: "" }); }}>+ Add</button>
             </div>
             <div className="col gap10">
                 {products.map(p => (
@@ -635,14 +635,22 @@ export function SellerDashboard({ activeTab }) {
                             {modal.mode === "add" && (
                                 <>
                                     <div className="p-field"><label htmlFor="m-name">Product Name</label><input id="m-name" className="p-input" type="text" value={form.name || ""} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} /></div>
-                                    <div className="plat-grid-2"><div className="p-field"><label htmlFor="m-emoji">Emoji</label><input id="m-emoji" className="p-input" maxLength={2} value={form.emoji || "🛒"} onChange={e => setForm(f => ({ ...f, emoji: e.target.value }))} /></div>
-                                        <div className="p-field"><label htmlFor="m-stock">Initial Stock</label><input id="m-stock" className="p-input" type="number" value={form.stock || ""} onChange={e => setForm(f => ({ ...f, stock: e.target.value }))} /></div></div>
+                                    <div className="plat-grid-2">
+                                        <div className="p-field"><label htmlFor="m-emoji">Emoji</label><input id="m-emoji" className="p-input" maxLength={2} value={form.emoji || "🛒"} onChange={e => setForm(f => ({ ...f, emoji: e.target.value }))} /></div>
+                                        <div className="p-field"><label htmlFor="m-stock">Initial Stock</label><input id="m-stock" className="p-input" type="number" value={form.stock || ""} onChange={e => setForm(f => ({ ...f, stock: e.target.value }))} /></div>
+                                    </div>
                                 </>
                             )}
                             <div className="plat-grid-2">
                                 <div className="p-field"><label htmlFor="m-sell">Selling Price (₹)</label><input id="m-sell" className="p-input" type="number" value={form.sellingPrice || ""} onChange={e => setForm(f => ({ ...f, sellingPrice: e.target.value }))} /></div>
                                 <div className="p-field"><label htmlFor="m-cost">Cost Price (₹)</label><input id="m-cost" className="p-input" type="number" value={form.costPrice || ""} onChange={e => setForm(f => ({ ...f, costPrice: e.target.value }))} /></div>
                             </div>
+                            <div className="plat-grid-2">
+                                <div className="p-field"><label htmlFor="m-mrp">MRP (₹)</label><input id="m-mrp" className="p-input" type="number" placeholder="e.g. 90" value={form.mrp || ""} onChange={e => setForm(f => ({ ...f, mrp: e.target.value }))} /></div>
+                                <div className="p-field"><label htmlFor="m-weight">Weight / Unit</label><input id="m-weight" className="p-input" type="text" placeholder="e.g. 500g, 1L" value={form.weight || ""} onChange={e => setForm(f => ({ ...f, weight: e.target.value }))} /></div>
+                            </div>
+                            <div className="p-field"><label htmlFor="m-desc">Description</label><textarea id="m-desc" className="p-input" rows={2} placeholder="What makes this product great?" value={form.description || ""} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} style={{ resize: "none", fontFamily: "inherit", fontSize: 13 }} /></div>
+                            <div className="p-field"><label htmlFor="m-tags">Tags (comma-separated)</label><input id="m-tags" className="p-input" type="text" placeholder="Organic, Fresh, Best Seller" value={form.tags || ""} onChange={e => setForm(f => ({ ...f, tags: e.target.value }))} /></div>
                             {modal.mode === "edit" && (
                                 <div className="p-field"><label htmlFor="m-stock-e">Stock Qty</label><input id="m-stock-e" className="p-input" type="number" value={form.stock ?? ""} onChange={e => setForm(f => ({ ...f, stock: e.target.value }))} /></div>
                             )}

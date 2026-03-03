@@ -223,4 +223,109 @@ router.delete("/:id",
     }
 );
 
+// ── Get Product Reviews (paginated) ──────────────────────────────────────────
+router.get("/:id/reviews", async (req, res, next) => {
+    try {
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 10;
+        const skip = (page - 1) * limit;
+
+        const product = await Product.findById(req.params.id).select("reviews rating reviewCount ratingDist");
+        if (!product) throw new NotFound("Product not found");
+
+        const total = product.reviews.length;
+        // Sort newest first, paginate
+        const paged = [...product.reviews]
+            .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+            .slice(skip, skip + limit);
+
+        res.json({
+            ok: true,
+            reviews: paged,
+            rating: product.rating,
+            reviewCount: product.reviewCount,
+            ratingDist: product.ratingDist,
+            pagination: { page, limit, total, pages: Math.ceil(total / limit) },
+        });
+    } catch (err) { next(err); }
+});
+
+// ── Submit / Update Review (authenticated customer) ───────────────────────────
+router.post("/:id/rate",
+    authenticate, authorize("customer"),
+    body("rating").isInt({ min: 1, max: 5 }).withMessage("Rating must be 1–5"),
+    body("comment").optional().isString().trim().isLength({ max: 500 }),
+    validate,
+    async (req, res, next) => {
+        try {
+            const { rating, comment = "" } = req.body;
+            const product = await Product.findById(req.params.id);
+            if (!product) throw new NotFound("Product not found");
+
+            // Remove old review from this user if exists
+            const existingIdx = product.reviews.findIndex(
+                r => r.userId.toString() === req.user._id.toString()
+            );
+            if (existingIdx !== -1) {
+                product.reviews.splice(existingIdx, 1);
+            }
+
+            // Push new review
+            product.reviews.push({
+                userId: req.user._id,
+                userName: req.user.name,
+                userAvatar: req.user.avatar || req.user.name?.slice(0, 2).toUpperCase() || "U",
+                rating,
+                comment,
+            });
+
+            // Recompute aggregate rating + distribution
+            const dist = { one: 0, two: 0, three: 0, four: 0, five: 0 };
+            const keys = ["one", "two", "three", "four", "five"];
+            let sum = 0;
+            for (const r of product.reviews) {
+                sum += r.rating;
+                dist[keys[r.rating - 1]]++;
+            }
+            product.reviewCount = product.reviews.length;
+            product.rating = parseFloat((sum / product.reviewCount).toFixed(1));
+            product.ratingDist = dist;
+
+            await product.save();
+
+            res.json({
+                ok: true,
+                rating: product.rating,
+                reviewCount: product.reviewCount,
+                ratingDist: product.ratingDist,
+            });
+        } catch (err) { next(err); }
+    }
+);
+
+// ── Update Product Images (seller/admin) ──────────────────────────────────────
+router.patch("/:id/images",
+    authenticate, authorize("seller", "admin"),
+    body("images").isArray({ max: 5 }).withMessage("Up to 5 image URLs allowed"),
+    body("images.*").isURL().withMessage("Each image must be a valid URL"),
+    validate,
+    async (req, res, next) => {
+        try {
+            const product = await Product.findById(req.params.id);
+            if (!product) throw new NotFound("Product not found");
+
+            // Only the seller who owns it (or admin) can update images
+            if (req.user.role !== "admin" && product.sellerId?.toString() !== req.user._id.toString())
+                throw new NotFound("Product not found");
+
+            product.images = req.body.images;
+            product.imageUrl = req.body.images[0] || product.imageUrl;
+            await product.save();
+
+            res.json({ ok: true, images: product.images, imageUrl: product.imageUrl });
+        } catch (err) { next(err); }
+    }
+);
+
 module.exports = router;
+
