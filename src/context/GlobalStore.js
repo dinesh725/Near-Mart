@@ -1,6 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from "react";
 import {
-    SUPPLIERS as INIT_SUPPLIERS,
     PURCHASE_ORDERS as INIT_POS,
     PRODUCTS as INIT_PRODUCTS,
     INIT_ORDERS,
@@ -54,7 +53,6 @@ export function GlobalStoreProvider({ children }) {
 
     // ── SCM (Supply Chain) ───────────────────────────────────────────────────
     const [products, setProducts] = useState(() => load("nm_products", INIT_PRODUCTS));
-    const [suppliers] = useState(INIT_SUPPLIERS);
     const [purchaseOrders, setPurchaseOrders] = useState(() => load("nm_pos", INIT_POS));
 
     // ── Platform Collections ─────────────────────────────────────────────────
@@ -545,7 +543,7 @@ export function GlobalStoreProvider({ children }) {
     return (
         <GlobalStoreContext.Provider value={{
             // SCM
-            products, suppliers, purchaseOrders,
+            products, purchaseOrders,
             updatePrice, updateStock, addProduct, updateProductImage, createPO, updatePOStatus,
             // Cart
             cart, cartCount, cartTotal, addToCart, removeFromCart, clearCart,

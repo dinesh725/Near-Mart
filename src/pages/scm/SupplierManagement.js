@@ -9,7 +9,7 @@ export const SupplierManagement = memo(() => {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        api.get("/users?role=vendor").then(res => {
+        api.get("/vendors").then(res => {
             const vends = res.data || [];
             setSuppliers(vends);
             if (vends.length > 0) setSelId(vends[0]._id);
