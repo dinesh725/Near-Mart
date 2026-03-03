@@ -27,6 +27,7 @@ export const GLOBAL_CSS = `
 :root{--z-map:1;--z-sidebar:100;--z-header:200;--z-nav:500;--z-dropdown:600;--z-modal:9000;--z-toast:9999;--z-tracking:10000}
 html{font-size:clamp(12.5px,0.85vw + 7px,16px);scroll-behavior:smooth;overflow-x:hidden}
 body{background:${T.bg};color:${T.text};font-family:'Sora',sans-serif;min-height:100vh;min-height:100dvh;overflow-x:hidden;-webkit-font-smoothing:antialiased;-webkit-text-size-adjust:100%;overscroll-behavior-x:none}
+body.scroll-locked{overflow:hidden !important;position:fixed;width:100%;touch-action:none;-ms-touch-action:none}
 /* Leaflet containment — tiles and controls must stay below app chrome */
 .leaflet-pane{z-index:var(--z-map) !important}
 .leaflet-top,.leaflet-bottom{z-index:calc(var(--z-map) + 1) !important}
@@ -43,7 +44,7 @@ body{background:${T.bg};color:${T.text};font-family:'Sora',sans-serif;min-height
 .mode-btn{padding:5px 12px;border-radius:20px;border:1px solid ${T.border};background:transparent;color:${T.textDim};font-family:'Sora',sans-serif;font-size:11px;font-weight:700;cursor:pointer;transition:all .2s;letter-spacing:.3px;white-space:nowrap;min-height:32px;-webkit-tap-highlight-color:transparent}
 .mode-btn:hover{color:${T.textSub};border-color:${T.borderLt}}
 .mode-btn.active{background:${T.goldFg};color:${T.gold};border-color:${T.goldDim}}
-.mode-content{margin-top:48px;min-height:calc(100vh - 48px);min-height:calc(100dvh - 48px)}
+.mode-content{margin-top:48px;height:calc(100vh - 48px);height:calc(100dvh - 48px);overflow:hidden}
 
 /* ── SCM ROOT ─────────────────────────────── */
 .scm-root{display:flex;flex-direction:column;min-height:calc(100vh - 48px);position:relative;overflow-x:hidden}
@@ -216,7 +217,7 @@ body{background:${T.bg};color:${T.text};font-family:'Sora',sans-serif;min-height
 @keyframes skeletonShimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
 
 /* ── PLATFORM STYLES ─────────────────────── */
-.plat-root{display:flex;min-height:calc(100vh - 48px);overflow-x:hidden;position:relative;background:${P.bg};max-width:100vw}
+.plat-root{display:flex;height:calc(100vh - 48px);height:calc(100dvh - 48px);overflow:hidden;position:relative;background:${P.bg};max-width:100vw}
 .bg-grid{position:fixed;inset:0;top:48px;background-image:linear-gradient(${P.border}22 1px,transparent 1px),linear-gradient(90deg,${P.border}22 1px,transparent 1px);background-size:40px 40px;pointer-events:none;z-index:0}
 .bg-glow{position:fixed;width:600px;height:600px;border-radius:50%;filter:blur(120px);pointer-events:none;z-index:0;transition:all 1s ease}
 
@@ -238,9 +239,9 @@ body{background:${T.bg};color:${T.text};font-family:'Sora',sans-serif;min-height
 .role-btn.active{background:${P.primary};color:white;box-shadow:0 4px 12px ${P.primaryGlow}}
 
 /* ── PLATFORM MAIN ─────────────────────── */
-.plat-main{flex:1;display:flex;flex-direction:column;overflow-x:hidden;position:relative;z-index:1;min-width:0}
-.plat-header{height:56px;background:${P.surface}CC;backdrop-filter:blur(20px);border-bottom:1px solid ${P.border};display:flex;align-items:center;padding:0 16px;padding-right:env(safe-area-inset-right,16px);gap:12px;flex-shrink:0;position:relative;z-index:200;overflow:hidden;min-width:0}
-.plat-content{flex:1;overflow-y:auto;overflow-x:hidden;padding:16px 14px 80px;padding-bottom:calc(80px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;gap:16px;width:100%;max-width:100vw}
+.plat-main{flex:1;display:flex;flex-direction:column;overflow-y:auto;overflow-x:hidden;position:relative;z-index:1;min-width:0}
+.plat-header{height:56px;background:${P.surface}EE;backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-bottom:1px solid ${P.border};display:flex;align-items:center;padding:0 16px;padding-right:env(safe-area-inset-right,16px);gap:12px;flex-shrink:0;position:sticky;top:0;z-index:200;overflow:hidden;min-width:0;will-change:transform}
+.plat-content{flex:1;overflow-x:hidden;padding:16px 14px 80px;padding-bottom:calc(80px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;gap:16px;width:100%;max-width:100vw}
 .plat-content>*{max-width:1400px;width:100%}
 .p-card{background:${P.card};border:1px solid ${P.border};border-radius:16px;padding:16px;position:relative;overflow:hidden;transition:border-color .2s ease}
 .p-card:hover{border-color:${P.primary}44}
@@ -389,7 +390,7 @@ select.p-input{cursor:pointer}
   .plat-header>div:first-child span:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .plat-content{padding:12px 10px 80px}
   .scm-content{padding:10px 10px 80px}
-  .mode-content{margin-top:48px}
+  .mode-content{margin-top:48px;height:calc(100vh - 48px);height:calc(100dvh - 48px);overflow:hidden}
   .kpi-value{font-size:18px}
   .stat-card{padding:12px}
   .stat-grid{gap:8px}
@@ -417,7 +418,8 @@ select.p-input{cursor:pointer}
   .mode-bar-brand{font-size:11px;letter-spacing:0}
   .mode-bar-ver{max-width:60px;gap:4px}
   .mode-btn{padding:3px 7px;font-size:9px;min-height:28px;border-radius:14px}
-  .mode-content{margin-top:44px;min-height:calc(100vh - 44px);min-height:calc(100dvh - 44px)}
+  .mode-content{margin-top:44px;height:calc(100vh - 44px);height:calc(100dvh - 44px);overflow:hidden}
+  .plat-root{height:calc(100vh - 44px);height:calc(100dvh - 44px)}
   .plat-header{padding:0 6px;gap:4px;height:46px}
   .plat-header>div:first-child{font-size:12px !important;gap:3px !important;flex:1;min-width:0;overflow:hidden}
   .plat-header>div:first-child>span:nth-child(2){display:none}
@@ -517,7 +519,7 @@ select.p-input{cursor:pointer}
   .hamburger-btn{display:none}
   .mobile-nav{display:none}
   .plat-sidebar{display:flex}
-  .plat-header{margin-top:62px}
+  .plat-header{margin-top:0}
   .g3{grid-template-columns:1fr 1fr 1fr}
   .g4{grid-template-columns:repeat(4,1fr)}
   .plat-content{padding:24px 28px 24px}

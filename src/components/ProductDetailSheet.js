@@ -92,9 +92,14 @@ export function ProductDetailSheet({ product: p, onClose }) {
 
     // ── Scroll lock ───────────────────────────────────────────────────────────
     useEffect(() => {
-        const prev = document.body.style.overflow;
-        document.body.style.overflow = "hidden";
-        return () => { document.body.style.overflow = prev || ""; };
+        const scrollY = window.scrollY;
+        document.body.classList.add("scroll-locked");
+        document.body.style.top = `-${scrollY}px`;
+        return () => {
+            document.body.classList.remove("scroll-locked");
+            document.body.style.top = "";
+            window.scrollTo(0, scrollY);
+        };
     }, []);
 
     // ── Close on Escape ───────────────────────────────────────────────────────
@@ -214,7 +219,7 @@ export function ProductDetailSheet({ product: p, onClose }) {
                     )}
 
                     {/* Image / Emoji */}
-                    <div style={{ height: 260, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", position: "relative" }}>
+                    <div style={{ height: 200, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", position: "relative" }}>
                         {images.length > 0 ? (
                             <img
                                 key={imgIdx}
@@ -252,7 +257,7 @@ export function ProductDetailSheet({ product: p, onClose }) {
                 <div style={{ flex: 1, overflowY: "auto", WebkitOverflowScrolling: "touch" }}>
 
                     {/* Product header */}
-                    <div style={{ padding: "20px 20px 0" }}>
+                    <div style={{ padding: "14px 16px 0" }}>
                         {/* Tags row */}
                         {(p.tags?.length > 0) && (
                             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
@@ -264,16 +269,16 @@ export function ProductDetailSheet({ product: p, onClose }) {
                             </div>
                         )}
 
-                        <h2 style={{ fontWeight: 800, fontSize: 22, lineHeight: 1.3, margin: 0 }}>{p.name}</h2>
-                        <div style={{ fontSize: 13, color: P.textMuted, marginTop: 4 }}>
+                        <h2 style={{ fontWeight: 800, fontSize: 20, lineHeight: 1.25, margin: 0 }}>{p.name}</h2>
+                        <div style={{ fontSize: 12, color: P.textMuted, marginTop: 3 }}>
                             {p.category}
                             {p.unit && ` · ${p.unit}`}
                             {p.weight && ` · ${p.weight}`}
                         </div>
 
                         {/* Price row */}
-                        <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginTop: 14 }}>
-                            <span style={{ fontWeight: 900, fontSize: 28, color: P.text }}>₹{p.sellingPrice}</span>
+                        <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 10 }}>
+                            <span style={{ fontWeight: 900, fontSize: 24, color: P.text }}>₹{p.sellingPrice}</span>
                             {p.mrp > p.sellingPrice && (
                                 <span style={{ fontSize: 15, color: P.textMuted, textDecoration: "line-through" }}>₹{p.mrp}</span>
                             )}
@@ -285,7 +290,7 @@ export function ProductDetailSheet({ product: p, onClose }) {
                         </div>
 
                         {/* Rating summary row — Blinkit style */}
-                        <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 14, paddingBottom: 16, borderBottom: `1px solid ${P.border}` }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, paddingBottom: 12, borderBottom: `1px solid ${P.border}` }}>
                             <div
                                 onClick={() => setActiveSection("reviews")}
                                 style={{
@@ -307,13 +312,13 @@ export function ProductDetailSheet({ product: p, onClose }) {
                     </div>
 
                     {/* ── Section tabs ── */}
-                    <div style={{ display: "flex", borderBottom: `1px solid ${P.border}`, padding: "0 20px" }}>
+                    <div style={{ display: "flex", borderBottom: `1px solid ${P.border}`, padding: "0 16px" }}>
                         {[["info", "Details"], ["reviews", `Reviews${reviewCount > 0 ? ` (${reviewCount})` : ""}`]].map(([k, label]) => (
                             <button
                                 key={k}
                                 onClick={() => setActiveSection(k)}
                                 style={{
-                                    flex: 1, padding: "14px 0", fontSize: 13, fontWeight: 700,
+                                    flex: 1, padding: "11px 0", fontSize: 13, fontWeight: 700,
                                     background: "none", border: "none", cursor: "pointer",
                                     color: activeSection === k ? P.primary : P.textMuted,
                                     borderBottom: `2px solid ${activeSection === k ? P.primary : "transparent"}`,
@@ -325,7 +330,7 @@ export function ProductDetailSheet({ product: p, onClose }) {
 
                     {/* ── Details Tab ── */}
                     {activeSection === "info" && (
-                        <div style={{ padding: "18px 20px 24px", display: "flex", flexDirection: "column", gap: 16 }}>
+                        <div style={{ padding: "14px 16px 100px", display: "flex", flexDirection: "column", gap: 12 }}>
 
                             {/* Trust badges */}
                             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -358,9 +363,9 @@ export function ProductDetailSheet({ product: p, onClose }) {
                             )}
 
                             {/* About */}
-                            <div style={{ background: P.surface, borderRadius: 14, padding: "14px 16px" }}>
-                                <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 0.8, color: P.textMuted, textTransform: "uppercase", marginBottom: 8 }}>About</div>
-                                <p style={{ fontSize: 13, lineHeight: 1.8, color: P.text, margin: 0 }}>
+                            <div style={{ background: P.surface, borderRadius: 14, padding: "14px 16px", borderLeft: `3px solid ${P.primary}` }}>
+                                <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 0.8, color: P.textMuted, textTransform: "uppercase", marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}><span style={{ fontSize: 13 }}>📋</span> About this product</div>
+                                <p style={{ fontSize: 13, lineHeight: 1.7, color: P.text, margin: 0, opacity: 0.9 }}>
                                     {p.description || `Fresh ${p.name} from ${p.supplier || "trusted local sellers"}. Quality assured and carefully packed for delivery.`}
                                 </p>
                             </div>
@@ -374,15 +379,18 @@ export function ProductDetailSheet({ product: p, onClose }) {
                             )}
 
                             {/* Store info */}
-                            <div style={{ display: "flex", alignItems: "center", gap: 12, background: P.surface, borderRadius: 14, padding: "14px 16px" }}>
-                                <div style={{ width: 44, height: 44, borderRadius: 12, background: P.primary + "22", border: `1px solid ${P.primary}33`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>🏪</div>
-                                <div style={{ flex: 1 }}>
-                                    <div style={{ fontWeight: 700, fontSize: 14 }}>{p.storeName || p.sellerName || "NearMart Partner Store"}</div>
-                                    <div style={{ fontSize: 12, color: P.textMuted, marginTop: 2 }}>
-                                        {p.sellerLocation || p.storeLocation || "Local seller"} · ⭐ {p.sellerRating || p.rating || "—"}
+                            <div style={{ display: "flex", alignItems: "center", gap: 12, background: `linear-gradient(135deg, ${P.surface}, ${P.card})`, borderRadius: 14, padding: "14px 16px", border: `1px solid ${P.border}` }}>
+                                <div style={{ width: 42, height: 42, borderRadius: 12, background: P.primary + "22", border: `1.5px solid ${P.primary}44`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}>🏪</div>
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                    <div style={{ fontWeight: 700, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.storeName || p.sellerName || "NearMart Partner Store"}</div>
+                                    <div style={{ fontSize: 11, color: P.textMuted, marginTop: 2, display: "flex", alignItems: "center", gap: 4 }}>
+                                        <span>{p.sellerLocation || p.storeLocation || "Local seller"}</span>
+                                        <span>·</span>
+                                        <span style={{ color: "#FBBF24" }}>★</span>
+                                        <span style={{ fontWeight: 600 }}>{p.sellerRating || p.rating || "—"}</span>
                                     </div>
                                 </div>
-                                <span style={{ fontSize: 12, color: "#10B981", fontWeight: 700, background: "#10B98122", padding: "4px 10px", borderRadius: 8 }}>Open</span>
+                                <span style={{ fontSize: 11, color: "#10B981", fontWeight: 700, background: "#10B98122", padding: "4px 10px", borderRadius: 8, border: "1px solid #10B98133", flexShrink: 0 }}>Open</span>
                             </div>
 
                             {/* Manufacturer */}
@@ -396,7 +404,7 @@ export function ProductDetailSheet({ product: p, onClose }) {
 
                     {/* ── Reviews Tab ── */}
                     {activeSection === "reviews" && (
-                        <div style={{ padding: "18px 20px 100px", display: "flex", flexDirection: "column", gap: 20 }}>
+                        <div style={{ padding: "14px 16px 100px", display: "flex", flexDirection: "column", gap: 16 }}>
 
                             {/* Rating summary */}
                             <div style={{ display: "flex", gap: 16, alignItems: "flex-start", background: P.surface, borderRadius: 16, padding: 18 }}>
@@ -504,8 +512,8 @@ export function ProductDetailSheet({ product: p, onClose }) {
                                 <button onClick={() => addToCart(p.id || p._id)} aria-label="Add">+</button>
                             </div>
                             <div style={{ flex: 1 }}>
-                                <div style={{ fontWeight: 900, fontSize: 20 }}>₹{p.sellingPrice * qty}</div>
-                                <div style={{ fontSize: 11, color: P.textMuted }}>{qty} × ₹{p.sellingPrice}</div>
+                                <div style={{ fontWeight: 900, fontSize: 20 }}>₹{(p.sellingPrice || 0) * qty}</div>
+                                <div style={{ fontSize: 11, color: P.textMuted }}>{qty} × ₹{p.sellingPrice || 0}</div>
                             </div>
                             <button className="p-btn p-btn-primary" style={{ minHeight: 52, minWidth: 120, fontSize: 15 }} onClick={onClose}>
                                 Go to Cart →
@@ -514,7 +522,7 @@ export function ProductDetailSheet({ product: p, onClose }) {
                     ) : (
                         <>
                             <div style={{ flex: 1 }}>
-                                <div style={{ fontWeight: 900, fontSize: 22 }}>₹{p.sellingPrice}</div>
+                                <div style={{ fontWeight: 900, fontSize: 22 }}>₹{p.sellingPrice || 0}</div>
                                 {p.mrp > p.sellingPrice && (
                                     <div style={{ fontSize: 12, textDecoration: "line-through", color: P.textMuted }}>MRP ₹{p.mrp}</div>
                                 )}
