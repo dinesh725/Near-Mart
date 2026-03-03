@@ -2,20 +2,18 @@ import React, { memo, useState } from "react";
 import { T } from "../../theme/theme";
 import { fmtFull } from "../../utils/helpers";
 import { useNearMart } from "../../context/NearMartContext";
-import { SUPPLIERS } from "../../data/mockData";
 
 export const InventoryIntelligence = memo(() => {
     const { products, createPO } = useNearMart();
     const [created, setCreated] = useState({});
 
     const handleCreatePO = (p) => {
-        const supplier = SUPPLIERS.find(s => s.id === p.supplierId) || SUPPLIERS[0];
         const qty = Math.max(50, p.monthlyRevenue > 0 ? Math.ceil(p.monthlySales * 0.5) : 50);
         const subtotal = qty * p.costPrice;
         const gst = Math.round(subtotal * 0.18);
         createPO({
             supplierId: p.supplierId,
-            supplierName: supplier.name,
+            supplierName: p.supplierName || "Primary Vendor",
             items: [{ productId: p.id, name: p.name, qty, unitCost: p.costPrice, total: subtotal }],
             subtotal,
             gst,
