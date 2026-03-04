@@ -37,11 +37,16 @@ app.use(helmet());
 
 // Multi-origin CORS: CORS_ORIGIN can be comma-separated
 const allowedOrigins = config.corsOrigin.split(",").map(o => o.trim()).filter(Boolean);
+// Capacitor WebView origins (always allowed for mobile app support)
+const capacitorOrigins = ["capacitor://localhost", "https://localhost", "http://localhost"];
 app.use(cors({
     origin: (origin, cb) => {
         // Allow requests with no origin (mobile apps, server-to-server)
         if (!origin) return cb(null, true);
+        // Allow configured origins
         if (allowedOrigins.includes(origin)) return cb(null, true);
+        // Allow Capacitor WebView origins (Android & iOS)
+        if (capacitorOrigins.includes(origin)) return cb(null, true);
         cb(new Error(`Origin ${origin} not allowed by CORS`));
     },
     credentials: true,

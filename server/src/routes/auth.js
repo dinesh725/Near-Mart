@@ -237,6 +237,86 @@ router.post("/google",
 );
 
 // ══════════════════════════════════════════════════════════════════════════════
+// ── Google OAuth Callback for Capacitor (Authorization Code Flow) ────────────
+// ══════════════════════════════════════════════════════════════════════════════
+
+router.get("/google/capacitor-callback", async (req, res) => {
+    try {
+        const { code, error: oauthError } = req.query;
+
+        if (oauthError || !code) {
+            // Redirect back to app with error
+            return res.redirect(`in.nearmart.app://google-callback?error=${encodeURIComponent(oauthError || 'No authorization code')}`);
+        }
+
+        // Exchange authorization code for tokens
+        const tokenUrl = 'https://oauth2.googleapis.com/token';
+        const tokenResponse = await fetch(tokenUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({
+                code,
+                client_id: process.env.GOOGLE_CLIENT_ID,
+                client_secret: process.env.GOOGLE_CLIENT_SECRET || '',
+                redirect_uri: `${req.protocol}://${req.get('host')}/api/auth/google/capacitor-callback`,
+                grant_type: 'authorization_code',
+            }),
+        });
+
+        const tokenData = await tokenResponse.json();
+
+        if (!tokenData.id_token) {
+            logger.warn('Google OAuth code exchange failed', tokenData);
+            return res.redirect(`in.nearmart.app://google-callback?error=token_exchange_failed`);
+        }
+
+        // Verify the ID token
+        const ticket = await googleClient.verifyIdToken({
+            idToken: tokenData.id_token,
+            audience: process.env.GOOGLE_CLIENT_ID,
+        });
+        const payload = ticket.getPayload();
+        const { sub: googleId, email, name, picture } = payload;
+
+        // Find or Create User (same logic as /google endpoint)
+        let user = await User.findOne({ $or: [{ googleId }, { email }] });
+        let isNewUser = false;
+
+        if (!user) {
+            user = await User.create({
+                name,
+                email,
+                googleId,
+                emailVerified: true,
+                profileImage: picture,
+                role: "customer"
+            });
+            isNewUser = true;
+            logger.info(`New Google user created (Capacitor): ${email}`);
+        } else {
+            if (!user.googleId) {
+                user.googleId = googleId;
+                user.profileImage = user.profileImage || picture;
+                user.emailVerified = true;
+                await user.save();
+                logger.info(`Google identity linked (Capacitor): ${email}`);
+            }
+        }
+
+        const tokens = generateTokens(user._id);
+        user.refreshToken = tokens.refreshToken;
+        await user.save();
+
+        // Redirect back to the Capacitor app with the JWT token via deep link
+        const redirectUrl = `in.nearmart.app://google-callback?token=${encodeURIComponent(tokenData.id_token)}&accessToken=${encodeURIComponent(tokens.accessToken)}&refreshToken=${encodeURIComponent(tokens.refreshToken)}`;
+        res.redirect(redirectUrl);
+    } catch (err) {
+        logger.warn(`Google Capacitor OAuth failed: ${err.message}`);
+        res.redirect(`in.nearmart.app://google-callback?error=${encodeURIComponent(err.message || 'auth_failed')}`);
+    }
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
 // ── Phone Linking ────────────────────────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════════════════════
 

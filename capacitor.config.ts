@@ -10,8 +10,15 @@ const config: CapacitorConfig = {
     // url: 'http://192.168.31.44:3001',
     // cleartext: true,
 
-    // Allow navigation to your API domain
-    allowNavigation: ['api.nearmart.in'],
+    // Allow navigation to your API domain and third-party auth/payment domains
+    allowNavigation: [
+      'api.nearmart.in',
+      'near-mart.onrender.com',
+      'accounts.google.com',
+      '*.google.com',
+      'checkout.razorpay.com',
+      'api.razorpay.com',
+    ],
   },
 
   plugins: {

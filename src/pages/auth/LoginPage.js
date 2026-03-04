@@ -1,14 +1,129 @@
-import React, { useState, useCallback, useMemo, useEffect } from "react";
+import React, { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { useAuth } from "../../auth/AuthContext";
 import api from "../../api/client";
 import { P } from "../../theme/theme";
 
-// ── Google OAuth Wrapper ──────────────────────────────────────────────────────
-const GOOGLE_CLIENT_ID = process.env.REACT_APP_GOOGLE_CLIENT_ID || "YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com"; // Ensure this matches backend
+// ── Capacitor detection ─────────────────────────────────────────────────────
+const isCapacitorNative = () => {
+    try {
+        return window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform();
+    } catch { return false; }
+};
 
-function GoogleAuthScript({ onSuccess, onError }) {
+const API_BASE_URL = (process.env.REACT_APP_API_URL || 'http://localhost:5000/api').replace(/\/api\/?$/, '');
+
+// ── Google OAuth Wrapper ──────────────────────────────────────────────────────
+const GOOGLE_CLIENT_ID = process.env.REACT_APP_GOOGLE_CLIENT_ID || "YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com";
+
+// ── Custom Google button for Capacitor (GSI SDK doesn't work in WebView) ────
+function CapacitorGoogleButton({ onSuccess, onError }) {
+    const [loading, setLoading] = useState(false);
+
+    const handleGoogleOAuth = useCallback(async () => {
+        setLoading(true);
+        try {
+            const redirectUri = `${API_BASE_URL}/api/auth/google/capacitor-callback`;
+            const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?` +
+                `client_id=${encodeURIComponent(GOOGLE_CLIENT_ID)}` +
+                `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+                `&response_type=code` +
+                `&scope=${encodeURIComponent('openid email profile')}` +
+                `&prompt=select_account`;
+
+            // Use Capacitor Browser plugin
+            let browserPlugin;
+            try {
+                const mod = await import('@capacitor/browser');
+                browserPlugin = mod.Browser;
+            } catch { /* Browser plugin not installed */ }
+
+            if (browserPlugin) {
+                // Listen for the deep link redirect back from server
+                const { App: CapApp } = await import('@capacitor/app');
+                const listener = await CapApp.addListener('appUrlOpen', async (event) => {
+                    try {
+                        const url = new URL(event.url);
+                        const accessToken = url.searchParams.get('accessToken');
+                        const refreshToken = url.searchParams.get('refreshToken');
+                        const error = url.searchParams.get('error');
+                        listener.remove();
+                        await browserPlugin.close().catch(() => { });
+
+                        if (accessToken && refreshToken) {
+                            // Server already created the user and tokens — just set them
+                            api.setTokens(accessToken, refreshToken);
+                            window.location.reload(); // Trigger session restore
+                        } else if (error) {
+                            onError(error);
+                        } else {
+                            onError('Google sign-in failed');
+                        }
+                    } catch (e) {
+                        onError(e?.message || 'Google sign-in failed');
+                    }
+                    setLoading(false);
+                });
+                await browserPlugin.open({ url: authUrl });
+            } else {
+                // Fallback: open in system browser
+                window.open(authUrl, '_system');
+                setLoading(false);
+            }
+        } catch (err) {
+            console.error('Google OAuth error:', err);
+            onError(err?.message || 'Google sign-in failed');
+            setLoading(false);
+        }
+    }, [onError]);
+
+    return (
+        <button
+            onClick={handleGoogleOAuth}
+            disabled={loading}
+            style={{
+                width: "100%",
+                marginTop: 16,
+                padding: "12px 16px",
+                background: "#ffffff",
+                border: "1px solid rgba(255,255,255,0.15)",
+                borderRadius: 14,
+                cursor: loading ? "wait" : "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 10,
+                transition: "all 0.2s ease",
+                boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+            }}
+        >
+            <svg width="20" height="20" viewBox="0 0 48 48">
+                <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z" />
+                <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z" />
+                <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z" />
+                <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z" />
+            </svg>
+            <span style={{ fontFamily: "'Sora',sans-serif", fontWeight: 600, fontSize: 14, color: "#1a1a2e" }}>
+                {loading ? "Signing in..." : "Continue with Google"}
+            </span>
+        </button>
+    );
+}
+
+// ── Web GSI Google Button (original — works on web browsers) ─────────────────
+function WebGoogleAuthScript({ onSuccess, onError }) {
+    const instanceId = useRef(`g_btn_${Math.random().toString(36).slice(2, 8)}`);
+
     useEffect(() => {
-        if (document.getElementById("google-gsi")) return;
+        if (document.getElementById("google-gsi")) {
+            // Script already loaded, just initialize
+            if (window.google) {
+                window.google.accounts.id.initialize({
+                    client_id: GOOGLE_CLIENT_ID,
+                    callback: (res) => onSuccess(res.credential),
+                });
+            }
+            return;
+        }
         const script = document.createElement("script");
         script.id = "google-gsi";
         script.src = "https://accounts.google.com/gsi/client";
@@ -24,7 +139,6 @@ function GoogleAuthScript({ onSuccess, onError }) {
 
     const renderButton = (id) => {
         if (window.google) {
-            // Dynamic width to prevent zooming on 320px screens (iPhone SE, etc.)
             const btnWidth = Math.min(384, window.innerWidth > 440 ? 384 : window.innerWidth - 32).toString();
             window.google.accounts.id.renderButton(document.getElementById(id), {
                 theme: "filled_black", size: "large", type: "standard", shape: "pill", width: btnWidth
@@ -33,12 +147,20 @@ function GoogleAuthScript({ onSuccess, onError }) {
     };
 
     useEffect(() => {
-        // Retry rendering every half sec until SDK loads
-        const t = setInterval(() => { if (window.google) { renderButton("g_id_onload_btn"); clearInterval(t); } }, 500);
+        const id = instanceId.current;
+        const t = setInterval(() => { if (window.google) { renderButton(id); clearInterval(t); } }, 500);
         return () => clearInterval(t);
-    }, []);
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-    return <div id="g_id_onload_btn" style={{ marginTop: 16 }}></div>;
+    return <div id={instanceId.current} style={{ marginTop: 16 }}></div>;
+}
+
+// ── Unified Google Auth Component ────────────────────────────────────────────
+function GoogleAuthScript({ onSuccess, onError }) {
+    if (isCapacitorNative()) {
+        return <CapacitorGoogleButton onSuccess={onSuccess} onError={onError} />;
+    }
+    return <WebGoogleAuthScript onSuccess={onSuccess} onError={onError} />;
 }
 
 const ROLE_CONFIG = {
