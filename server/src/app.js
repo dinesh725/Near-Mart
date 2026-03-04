@@ -33,7 +33,13 @@ const app = express();
 app.set("trust proxy", 1);
 
 // ── Security ──────────────────────────────────────────────────────────────────
-app.use(helmet());
+// helmet() must allow cross-origin API consumption for Capacitor WebView
+// (WebView origin is https://localhost, API is at near-mart.onrender.com)
+app.use(helmet({
+    crossOriginResourcePolicy: { policy: "cross-origin" },  // Allow API responses to be read cross-origin
+    crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },  // Allow Google OAuth popups
+    contentSecurityPolicy: false,  // CSP not needed for an API server
+}));
 
 // Multi-origin CORS: CORS_ORIGIN can be comma-separated
 const allowedOrigins = config.corsOrigin.split(",").map(o => o.trim()).filter(Boolean);
