@@ -22,6 +22,10 @@ const config: CapacitorConfig = {
   },
 
   plugins: {
+    // Use native HTTP layer for all fetch/XHR — completely bypasses WebView CORS
+    CapacitorHttp: {
+      enabled: true,
+    },
     SplashScreen: {
       launchShowDuration: 2000,
       launchAutoHide: true,
