@@ -237,69 +237,80 @@ router.post("/google",
 );
 
 // ══════════════════════════════════════════════════════════════════════════════
-// ── Google OAuth Callback for Capacitor (Authorization Code Flow) ────────────
+// ── Google OAuth Mobile Redirect (Implicit Flow for Capacitor) ───────────────
 // ══════════════════════════════════════════════════════════════════════════════
 
-router.get("/google/capacitor-callback", async (req, res) => {
+// This page receives the id_token from Google's implicit flow (in URL hash),
+// sends it to our verify endpoint, and redirects back to the app with JWT tokens.
+router.get("/google/mobile-redirect", (req, res) => {
+    res.send(`<!DOCTYPE html><html><head><title>Signing in...</title></head><body>
+<p style="text-align:center;margin-top:40vh;font-family:sans-serif;color:#666">Completing sign-in...</p>
+<script>
+(function(){
+  try {
+    var hash = window.location.hash.substring(1);
+    var params = new URLSearchParams(hash);
+    var idToken = params.get('id_token');
+    var error = params.get('error');
+    if (error || !idToken) {
+      window.location.href = 'in.nearmart.app://google-callback?error=' + encodeURIComponent(error || 'no_token');
+      return;
+    }
+    fetch(window.location.origin + '/api/auth/google/mobile-verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: idToken })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.ok && data.accessToken) {
+        window.location.href = 'in.nearmart.app://google-callback?accessToken=' + encodeURIComponent(data.accessToken) + '&refreshToken=' + encodeURIComponent(data.refreshToken);
+      } else {
+        window.location.href = 'in.nearmart.app://google-callback?error=' + encodeURIComponent(data.error || 'auth_failed');
+      }
+    })
+    .catch(function(e) {
+      window.location.href = 'in.nearmart.app://google-callback?error=' + encodeURIComponent(e.message || 'network_error');
+    });
+  } catch(e) {
+    window.location.href = 'in.nearmart.app://google-callback?error=' + encodeURIComponent(e.message || 'unknown_error');
+  }
+})();
+</script></body></html>`);
+});
+
+// Mobile verify endpoint — receives id_token from the redirect page above
+router.post("/google/mobile-verify", async (req, res, next) => {
     try {
-        const { code, error: oauthError } = req.query;
+        const { token } = req.body;
+        if (!token) return res.status(400).json({ ok: false, error: "Missing token" });
 
-        if (oauthError || !code) {
-            // Redirect back to app with error
-            return res.redirect(`in.nearmart.app://google-callback?error=${encodeURIComponent(oauthError || 'No authorization code')}`);
-        }
-
-        // Exchange authorization code for tokens
-        const tokenUrl = 'https://oauth2.googleapis.com/token';
-        const tokenResponse = await fetch(tokenUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: new URLSearchParams({
-                code,
-                client_id: process.env.GOOGLE_CLIENT_ID,
-                client_secret: process.env.GOOGLE_CLIENT_SECRET || '',
-                redirect_uri: `${req.protocol}://${req.get('host')}/api/auth/google/capacitor-callback`,
-                grant_type: 'authorization_code',
-            }),
-        });
-
-        const tokenData = await tokenResponse.json();
-
-        if (!tokenData.id_token) {
-            logger.warn('Google OAuth code exchange failed', tokenData);
-            return res.redirect(`in.nearmart.app://google-callback?error=token_exchange_failed`);
-        }
-
-        // Verify the ID token
         const ticket = await googleClient.verifyIdToken({
-            idToken: tokenData.id_token,
+            idToken: token,
             audience: process.env.GOOGLE_CLIENT_ID,
         });
         const payload = ticket.getPayload();
         const { sub: googleId, email, name, picture } = payload;
 
-        // Find or Create User (same logic as /google endpoint)
         let user = await User.findOne({ $or: [{ googleId }, { email }] });
         let isNewUser = false;
 
         if (!user) {
             user = await User.create({
-                name,
-                email,
-                googleId,
+                name, email, googleId,
                 emailVerified: true,
                 profileImage: picture,
                 role: "customer"
             });
             isNewUser = true;
-            logger.info(`New Google user created (Capacitor): ${email}`);
+            logger.info(`New Google user created (mobile): ${email}`);
         } else {
             if (!user.googleId) {
                 user.googleId = googleId;
                 user.profileImage = user.profileImage || picture;
                 user.emailVerified = true;
                 await user.save();
-                logger.info(`Google identity linked (Capacitor): ${email}`);
+                logger.info(`Google identity linked (mobile): ${email}`);
             }
         }
 
@@ -307,12 +318,10 @@ router.get("/google/capacitor-callback", async (req, res) => {
         user.refreshToken = tokens.refreshToken;
         await user.save();
 
-        // Redirect back to the Capacitor app with the JWT token via deep link
-        const redirectUrl = `in.nearmart.app://google-callback?token=${encodeURIComponent(tokenData.id_token)}&accessToken=${encodeURIComponent(tokens.accessToken)}&refreshToken=${encodeURIComponent(tokens.refreshToken)}`;
-        res.redirect(redirectUrl);
+        res.json({ ok: true, user: user.toJSON(), ...tokens, isNewUser });
     } catch (err) {
-        logger.warn(`Google Capacitor OAuth failed: ${err.message}`);
-        res.redirect(`in.nearmart.app://google-callback?error=${encodeURIComponent(err.message || 'auth_failed')}`);
+        logger.warn(`Google mobile auth failed: ${err.message}`);
+        res.status(401).json({ ok: false, error: "Invalid Google Token" });
     }
 });
 

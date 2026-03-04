@@ -22,12 +22,14 @@ function CapacitorGoogleButton({ onSuccess, onError }) {
     const handleGoogleOAuth = useCallback(async () => {
         setLoading(true);
         try {
-            const redirectUri = `${API_BASE_URL}/api/auth/google/capacitor-callback`;
+            // Use implicit flow — returns id_token directly to the redirect page
+            const redirectUri = `${API_BASE_URL}/api/auth/google/mobile-redirect`;
             const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?` +
                 `client_id=${encodeURIComponent(GOOGLE_CLIENT_ID)}` +
                 `&redirect_uri=${encodeURIComponent(redirectUri)}` +
-                `&response_type=code` +
+                `&response_type=id_token` +
                 `&scope=${encodeURIComponent('openid email profile')}` +
+                `&nonce=${Math.random().toString(36).slice(2)}` +
                 `&prompt=select_account`;
 
             // Use Capacitor Browser plugin
@@ -38,7 +40,6 @@ function CapacitorGoogleButton({ onSuccess, onError }) {
             } catch { /* Browser plugin not installed */ }
 
             if (browserPlugin) {
-                // Listen for the deep link redirect back from server
                 const { App: CapApp } = await import('@capacitor/app');
                 const listener = await CapApp.addListener('appUrlOpen', async (event) => {
                     try {
@@ -50,9 +51,8 @@ function CapacitorGoogleButton({ onSuccess, onError }) {
                         await browserPlugin.close().catch(() => { });
 
                         if (accessToken && refreshToken) {
-                            // Server already created the user and tokens — just set them
                             api.setTokens(accessToken, refreshToken);
-                            window.location.reload(); // Trigger session restore
+                            window.location.reload();
                         } else if (error) {
                             onError(error);
                         } else {
@@ -65,7 +65,6 @@ function CapacitorGoogleButton({ onSuccess, onError }) {
                 });
                 await browserPlugin.open({ url: authUrl });
             } else {
-                // Fallback: open in system browser
                 window.open(authUrl, '_system');
                 setLoading(false);
             }
@@ -453,8 +452,7 @@ export function LoginPage() {
                 ))}
             </div>
 
-            {/* Google Authentication Global Handler */}
-            {tab !== "demo" && <GoogleAuthScript onSuccess={(res) => handleGoogleLogin(res, form.role)} onError={() => setServerErr("Google Login failed")} />}
+
 
             {/* ── SIGN IN TAB ── */}
             {tab === "signin" && (
