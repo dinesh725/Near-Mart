@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useCallback, useEffect } from "react";
+import ReactDOM from "react-dom";
 import { useAuth } from "../../auth/AuthContext";
 import { P } from "../../theme/theme";
 
@@ -238,7 +239,7 @@ export function WalletPage() {
             </div>
 
             {/* Add Money Modal */}
-            {showAddMoney && (
+            {showAddMoney && typeof document !== "undefined" && ReactDOM.createPortal(
                 <div style={{
                     position: "fixed", inset: 0, zIndex: 9999,
                     background: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)",
@@ -293,11 +294,12 @@ export function WalletPage() {
                             )}
                         </button>
                     </div>
-                </div>
+                </div>,
+                document.body
             )}
 
             {/* Result Toast */}
-            {addResult && (
+            {addResult && typeof document !== "undefined" && ReactDOM.createPortal(
                 <div style={{
                     position: "fixed", bottom: 80, left: "50%", transform: "translateX(-50%)",
                     background: addResult.ok ? P.success : P.danger,
@@ -309,7 +311,8 @@ export function WalletPage() {
                     {addResult.ok
                         ? `✅ ₹${addResult.amount} added to wallet!`
                         : `❌ ${addResult.message}`}
-                </div>
+                </div>,
+                document.body
             )}
         </div>
     );
