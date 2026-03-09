@@ -954,6 +954,7 @@ router.post("/:id/rate",
 );
 
 // ── Reorder (recreate cart from a previous order) ─────────────────────────────
+// Applies the SAME filters as product search: seller must be open + within delivery radius
 router.post("/:id/reorder",
     authenticate, authorize("customer"),
     async (req, res, next) => {
@@ -963,15 +964,76 @@ router.post("/:id/reorder",
             if (order.customerId.toString() !== req.user._id.toString())
                 throw new Forbidden("Cannot reorder from this order");
 
-            // Validate product availability and stock
+            // Customer GPS — sent from frontend, fallback to saved profile location
+            const customerLat = parseFloat(req.body.lat) || req.user.location?.coordinates?.[1] || null;
+            const customerLng = parseFloat(req.body.lng) || req.user.location?.coordinates?.[0] || null;
+
+            // Haversine distance helper (same as product search route)
+            const calcDistance = (sellerLat, sellerLng) => {
+                if (!customerLat || !customerLng || !sellerLat || !sellerLng) return null;
+                const R = 6371;
+                const toRad = d => d * Math.PI / 180;
+                const dLat = toRad(sellerLat - customerLat);
+                const dLng = toRad(sellerLng - customerLng);
+                const a = Math.sin(dLat / 2) ** 2 +
+                    Math.cos(toRad(customerLat)) * Math.cos(toRad(sellerLat)) * Math.sin(dLng / 2) ** 2;
+                return parseFloat((R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))).toFixed(2));
+            };
+
             const cartItems = [];
             const unavailable = [];
+            const unavailableReasons = {};
+
             for (const item of order.items) {
-                const product = await Product.findById(item.productId);
-                if (!product || product.stock < 1) {
+                // 1. Check product exists, is active, and in stock
+                const product = await Product.findById(item.productId)
+                    .populate("sellerId", "name storeName location isOpen deliveryRadius");
+
+                if (!product || product.status !== "active") {
                     unavailable.push(item.name);
+                    unavailableReasons[item.name] = "Product no longer available";
                     continue;
                 }
+                if (product.stock < 1) {
+                    unavailable.push(item.name);
+                    unavailableReasons[item.name] = "Out of stock";
+                    continue;
+                }
+
+                const seller = product.sellerId;
+
+                // 2. Check seller exists and is currently open
+                if (!seller) {
+                    unavailable.push(item.name);
+                    unavailableReasons[item.name] = "Seller no longer available";
+                    continue;
+                }
+                if (seller.isOpen === false) {
+                    unavailable.push(item.name);
+                    unavailableReasons[item.name] = "Seller is currently closed";
+                    continue;
+                }
+
+                // 3. Check delivery radius (same logic as product search filter)
+                const sellerLat = seller.location?.coordinates?.[1] || seller.location?.lat;
+                const sellerLng = seller.location?.coordinates?.[0] || seller.location?.lng;
+                const distanceKm = calcDistance(sellerLat, sellerLng);
+
+                if (distanceKm !== null) {
+                    const maxRadius = seller.deliveryRadius || 5;
+                    if (distanceKm > maxRadius) {
+                        unavailable.push(item.name);
+                        unavailableReasons[item.name] = `Seller is ${distanceKm}km away (max ${maxRadius}km)`;
+                        continue;
+                    }
+                } else if (distanceKm !== null && distanceKm > 15) {
+                    // Fallback max radius if seller radius not set
+                    unavailable.push(item.name);
+                    unavailableReasons[item.name] = "Seller too far away";
+                    continue;
+                }
+
+                // ✅ All checks passed — add to cart
                 cartItems.push({
                     productId: product._id.toString(),
                     name: product.name,
@@ -987,6 +1049,7 @@ router.post("/:id/reorder",
                 ok: true,
                 cartItems,
                 unavailable,
+                unavailableReasons,
                 originalOrderId: order._id,
                 message: unavailable.length > 0
                     ? `${unavailable.length} item(s) unavailable: ${unavailable.join(", ")}`

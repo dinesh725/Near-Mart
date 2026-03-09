@@ -327,7 +327,7 @@ function RateModal({ order, onClose, onSubmit }) {
 // ══════════════════════════════════════════════════════════════════════════════
 // ██ MAIN ORDERS PAGE COMPONENT ██
 // ══════════════════════════════════════════════════════════════════════════════
-export function OrdersPage({ onTrackOrder, setActiveTab, onReorderToCart }) {
+export function OrdersPage({ onTrackOrder, setActiveTab, onReorderToCart, customerGps }) {
     const [orders, setOrders] = useState([]);
     const [loading, setLoading] = useState(true);
     const [activeFilter, setActiveFilter] = useState("ALL");
@@ -436,11 +436,21 @@ export function OrdersPage({ onTrackOrder, setActiveTab, onReorderToCart }) {
 
     const handleReorder = async (order) => {
         try {
-            const res = await api.post(`/orders/${order._id}/reorder`);
+            // Send customer GPS so backend can enforce delivery radius check
+            const body = {};
+            if (customerGps?.lat && customerGps?.lng) {
+                body.lat = customerGps.lat;
+                body.lng = customerGps.lng;
+            }
+            const res = await api.post(`/orders/${order._id}/reorder`, body);
             if (res.ok) {
-                const { cartItems = [], unavailable = [] } = res;
+                const { cartItems = [], unavailable = [], unavailableReasons = {}, message = "" } = res;
                 if (cartItems.length === 0) {
-                    alert("All items from this order are currently unavailable or out of stock.");
+                    // Show detailed reasons why items are unavailable
+                    const reasons = unavailable.map(name =>
+                        `• ${name}: ${unavailableReasons[name] || "Not available"}`
+                    ).join("\n");
+                    alert(`None of the items from this order are currently available for delivery to your location.\n\n${reasons}`);
                     return;
                 }
                 // Pass items to parent to populate cart and switch tab

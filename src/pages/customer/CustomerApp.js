@@ -439,6 +439,7 @@ export function CustomerApp({ activeTab, setActiveTab }) {
             onTrackOrder={setTrackingOrder}
             setActiveTab={setActiveTab}
             onReorderToCart={handleReorderToCart}
+            customerGps={customerGps}
         />
     );
 
