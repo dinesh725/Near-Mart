@@ -30,7 +30,17 @@
     <style>
       /* Prevent zoom/double-tap zoom on mobile app */
       *, *::before, *::after { touch-action: manipulation; }
-      body { overscroll-behavior: none; -webkit-text-size-adjust: 100%; }
+      /* Absolute Mobile Strict Locks to prevent Horizontal Shaking / Rubber banding */
+      html, body {
+        width: 100vw;
+        max-width: 100vw;
+        overflow-x: hidden !important;
+        overscroll-behavior: none !important; /* Kills all rubber-banding */
+        position: relative;
+        margin: 0;
+        padding: 0;
+      }
+      body { -webkit-text-size-adjust: 100%; }
     </style>
     <div id="root"></div>
     <div id="portal-root"></div>

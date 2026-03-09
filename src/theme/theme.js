@@ -25,8 +25,8 @@ export const GLOBAL_CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=DM+Sans:wght@300;400;500;600;700&family=Cinzel:wght@500;700&display=swap');
 *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
 :root{--z-map:1;--z-sidebar:100;--z-header:200;--z-nav:500;--z-dropdown:600;--z-modal:9000;--z-toast:9999;--z-tracking:10000}
-html{font-size:clamp(12.5px,0.85vw + 7px,16px);scroll-behavior:smooth;overflow-x:hidden}
-body{background:${T.bg};color:${T.text};font-family:'Sora',sans-serif;min-height:100vh;min-height:100dvh;overflow-x:hidden;-webkit-font-smoothing:antialiased;-webkit-text-size-adjust:100%;overscroll-behavior-x:none}
+html{font-size:clamp(12.5px,0.85vw + 7px,16px);scroll-behavior:smooth;overflow-x:hidden !important;overscroll-behavior:none !important;width:100vw;max-width:100vw;position:relative;margin:0;padding:0}
+body{background:${T.bg};color:${T.text};font-family:'Sora',sans-serif;min-height:100vh;min-height:100dvh;overflow-x:hidden !important;overscroll-behavior:none !important;-webkit-font-smoothing:antialiased;-webkit-text-size-adjust:100%;width:100vw;max-width:100vw;position:relative;margin:0;padding:0}
 body.scroll-locked{overflow:hidden !important;position:fixed;width:100%;touch-action:none;-ms-touch-action:none}
 /* Leaflet containment — tiles and controls must stay below app chrome */
 .leaflet-pane{z-index:var(--z-map) !important}
