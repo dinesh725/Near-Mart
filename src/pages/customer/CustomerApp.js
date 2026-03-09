@@ -127,11 +127,7 @@ export function CustomerApp({ activeTab, setActiveTab }) {
     // Filter orders belonging to this customer — backend orders use customerId field or _id in items
     const myOrders = orders.filter(o => o.customerId === user?.id || o.customerId === user?._id);
     const categories = ["All", ...new Set(products.map(p => p.category))];
-    const filtered = products.filter(p => {
-        const matchSearch = p.name.toLowerCase().includes(search.toLowerCase());
-        const matchCat = category === "All" || p.category === category;
-        return matchSearch && matchCat;
-    });
+
 
     const [gpsStatus, setGpsStatus] = useState("fetching"); // "fetching", "located", or "failed"
 
