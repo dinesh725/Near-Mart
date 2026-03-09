@@ -201,24 +201,29 @@ function OrderCard({ order, onViewDetail, onTrack, onCancel, onReorder }) {
                 </div>
             )}
 
-            {/* Action Buttons */}
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }} onClick={e => e.stopPropagation()}>
-                {canTrack && (
-                    <button className="p-btn p-btn-sm" style={{ background: `${P.primary}15`, color: P.primary, border: `1px solid ${P.primary}33`, flex: 1 }} onClick={() => onTrack(order)}>
+            {/* Action Buttons — responsive grid so all buttons always show */}
+            <div style={{ display: "grid", gridTemplateColumns: canCancel ? "1fr 1fr auto" : "1fr 1fr", gap: 6 }} onClick={e => e.stopPropagation()}>
+                {canTrack ? (
+                    <button className="p-btn p-btn-sm" style={{ background: `${P.primary}15`, color: P.primary, border: `1px solid ${P.primary}33`, minWidth: 0, fontSize: 12, padding: "6px 8px" }} onClick={() => onTrack(order)}>
                         🗺 Track
                     </button>
+                ) : (
+                    <button className="p-btn p-btn-sm" style={{ background: P.surface, color: P.text, border: `1px solid ${P.border}`, minWidth: 0, fontSize: 12, padding: "6px 8px" }} onClick={() => onViewDetail(order)}>
+                        📋 Details
+                    </button>
                 )}
-                <button className="p-btn p-btn-sm" style={{ background: P.surface, color: P.text, border: `1px solid ${P.border}`, flex: 1 }} onClick={() => onViewDetail(order)}>
-                    📋 Details
-                </button>
-                {canReorder && (
-                    <button className="p-btn p-btn-sm" style={{ background: `${P.success}12`, color: P.success, border: `1px solid ${P.success}33`, flex: 1 }} onClick={() => onReorder(order)}>
+                {canReorder ? (
+                    <button className="p-btn p-btn-sm" style={{ background: `${P.success}15`, color: P.success, border: `1px solid ${P.success}33`, minWidth: 0, fontSize: 12, padding: "6px 8px", fontWeight: 700 }} onClick={() => onReorder(order)}>
                         🔄 Reorder
+                    </button>
+                ) : (
+                    <button className="p-btn p-btn-sm" style={{ background: P.surface, color: P.text, border: `1px solid ${P.border}`, minWidth: 0, fontSize: 12, padding: "6px 8px" }} onClick={() => onViewDetail(order)}>
+                        📋 Details
                     </button>
                 )}
                 {canCancel && (
-                    <button className="p-btn p-btn-sm" style={{ background: `${P.danger}12`, color: P.danger, border: `1px solid ${P.danger}33` }} onClick={() => onCancel(order)}>
-                        ✕
+                    <button className="p-btn p-btn-sm" style={{ background: `${P.danger}12`, color: P.danger, border: `1px solid ${P.danger}33`, minWidth: 0, fontSize: 12, padding: "6px 8px" }} onClick={() => onCancel(order)}>
+                        ✕ Cancel
                     </button>
                 )}
             </div>
@@ -317,7 +322,7 @@ function RateModal({ order, onClose, onSubmit }) {
 // ══════════════════════════════════════════════════════════════════════════════
 // ██ MAIN ORDERS PAGE COMPONENT ██
 // ══════════════════════════════════════════════════════════════════════════════
-export function OrdersPage({ onTrackOrder, setActiveTab }) {
+export function OrdersPage({ onTrackOrder, setActiveTab, onReorderToCart }) {
     const [orders, setOrders] = useState([]);
     const [loading, setLoading] = useState(true);
     const [activeFilter, setActiveFilter] = useState("ALL");
@@ -425,10 +430,23 @@ export function OrdersPage({ onTrackOrder, setActiveTab }) {
     };
 
     const handleReorder = async (order) => {
-        const res = await api.post(`/orders/${order._id}/reorder`);
-        if (res.ok && res.cartItems?.length > 0) {
-            // For now show details with a toast - full cart integration can come later
-            setSelectedOrder(order);
+        try {
+            const res = await api.post(`/orders/${order._id}/reorder`);
+            if (res.ok) {
+                const { cartItems = [], unavailable = [] } = res;
+                if (cartItems.length === 0) {
+                    alert("All items from this order are currently unavailable or out of stock.");
+                    return;
+                }
+                // Pass items to parent to populate cart and switch tab
+                if (onReorderToCart) {
+                    onReorderToCart(cartItems, unavailable);
+                }
+            } else {
+                alert(res.error || "Could not reorder. Please try again.");
+            }
+        } catch (err) {
+            alert("Network error. Please check your connection and try again.");
         }
     };
 

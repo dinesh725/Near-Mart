@@ -172,6 +172,9 @@ export function GlobalStoreProvider({ children }) {
 
     const clearCart = useCallback(() => setCart({}), []);
 
+    // Direct cart setter for reorder flow
+    const setCartDirect = useCallback((cartObj) => setCart(cartObj), []);
+
     // P1: Memoize cart computations to prevent recalculation every render
     const cartCount = useMemo(() => Object.values(cart).reduce((a, b) => a + b, 0), [cart]);
     const cartTotal = useMemo(() => Object.entries(cart).reduce((sum, [id, qty]) => {
@@ -555,7 +558,7 @@ export function GlobalStoreProvider({ children }) {
             products, purchaseOrders,
             updatePrice, updateStock, addProduct, removeProduct, updateProductImage, createPO, updatePOStatus,
             // Cart
-            cart, cartCount, cartTotal, addToCart, removeFromCart, clearCart,
+            cart, cartCount, cartTotal, addToCart, removeFromCart, clearCart, setCartDirect,
             // Orders
             orders, placeOrder, acceptOrder, prepareOrder, markReadyForPickup,
             startDelivery, markDelivered, cancelOrder, flagOrder,

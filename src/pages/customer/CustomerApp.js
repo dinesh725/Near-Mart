@@ -114,7 +114,7 @@ function CartFAB({ count, total, onClick }) {
 // ── MAIN COMPONENT ────────────────────────────────────────────────────────────
 export function CustomerApp({ activeTab, setActiveTab }) {
     const { user } = useAuth();
-    const { products, cart, cartCount, cartTotal, addToCart, removeFromCart, clearCart, orders, fetchOrders, setBackendOrder, showToast } = useStore();
+    const { products, cart, cartCount, cartTotal, addToCart, removeFromCart, clearCart, setCartDirect, orders, fetchOrders, setBackendOrder, showToast } = useStore();
     const [search, setSearch] = useState("");
     const [category, setCategory] = useState("All");
     const [showCheckout, setShowCheckout] = useState(false);
@@ -412,11 +412,33 @@ export function CustomerApp({ activeTab, setActiveTab }) {
         );
     };
 
+    // ── Handle reorder: populate cart + navigate to cart tab ───────────────────
+    const handleReorderToCart = useCallback((cartItems, unavailable) => {
+        // Build a cart object: { productId: qty }
+        const newCart = {};
+        cartItems.forEach(item => {
+            newCart[item.productId] = item.qty;
+        });
+        clearCart();
+        // Small delay to ensure clearCart processes first
+        setTimeout(() => {
+            setCartDirect(newCart);
+            // Show unavailable items warning
+            if (unavailable && unavailable.length > 0) {
+                showToast(`${unavailable.length} item(s) unavailable: ${unavailable.join(", ")}. Removed from cart.`, "alert", "⚠️");
+            } else {
+                showToast(`${cartItems.length} item(s) added to cart! Review and checkout.`, "success", "🛒");
+            }
+            setActiveTab(1); // Navigate to Cart tab
+        }, 100);
+    }, [clearCart, setCartDirect, showToast, setActiveTab]);
+
     // ── ORDERS TAB (Production-grade) ─────────────────────────────────────────
     const OrdersTab = () => (
         <OrdersPage
             onTrackOrder={setTrackingOrder}
             setActiveTab={setActiveTab}
+            onReorderToCart={handleReorderToCart}
         />
     );
 
