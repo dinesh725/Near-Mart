@@ -54,7 +54,16 @@ self.addEventListener("fetch", (event) => {
     // Skip chrome-extension, devtools, etc.
     if (!url.protocol.startsWith("http")) return;
 
-    // ── API requests: Network-First with timeout fallback ─────────────────
+    // ── CRITICAL: Payment/Order/Wallet APIs must NEVER be cached ────────
+    // These endpoints contain live financial state. Serving stale cached
+    // responses could show incorrect payment status or wallet balances.
+    const NEVER_CACHE_PATHS = ["/api/payments", "/api/orders", "/api/wallet"];
+    if (NEVER_CACHE_PATHS.some(p => url.pathname.startsWith(p))) {
+        event.respondWith(fetch(request));
+        return;
+    }
+
+    // ── Other API requests: Network-First with timeout fallback ────────
     if (url.pathname.startsWith("/api")) {
         event.respondWith(networkFirstWithTimeout(request, 8000));
         return;

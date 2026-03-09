@@ -49,3 +49,74 @@ cron.schedule("1 0 * * *", async () => {
         logger.error("[Cron] Error resetting OTP quotas:", error);
     }
 });
+
+// ── Sweep stale PENDING_PAYMENT orders (every 5 minutes) ────────────────────
+// Prevents inventory depletion attack: bots clicking checkout without paying
+const Order = require("../models/Order");
+const Product = require("../models/Product");
+const Transaction = require("../models/Transaction");
+const WalletTransaction = require("../models/WalletTransaction");
+
+cron.schedule("*/5 * * * *", async () => {
+    try {
+        const cutoff = new Date(Date.now() - 15 * 60 * 1000); // 15 minutes ago
+
+        const staleOrders = await Order.find({
+            status: "PENDING_PAYMENT",
+            createdAt: { $lt: cutoff },
+        });
+
+        if (staleOrders.length === 0) return;
+
+        // Group by paymentGroupId to avoid double-processing
+        const processedGroups = new Set();
+
+        for (const order of staleOrders) {
+            // Restore stock for this order
+            for (const item of order.items) {
+                await Product.findByIdAndUpdate(item.productId, { $inc: { stock: item.qty } });
+            }
+
+            // Refund wallet only once per payment group
+            if (order.paymentGroupId && !processedGroups.has(order.paymentGroupId)) {
+                processedGroups.add(order.paymentGroupId);
+
+                const txn = await Transaction.findOne({
+                    paymentId: order.paymentGroupId, status: "pending",
+                });
+
+                if (txn && txn.walletAmount > 0) {
+                    const refundedUser = await User.findByIdAndUpdate(
+                        order.customerId,
+                        { $inc: { walletBalance: txn.walletAmount } },
+                        { new: true }
+                    );
+                    const prevBalance = (refundedUser.walletBalance || 0) - txn.walletAmount;
+                    await WalletTransaction.create({
+                        userId: order.customerId, type: "credit", amount: txn.walletAmount,
+                        category: "refund",
+                        balanceBefore: prevBalance,
+                        balanceAfter: refundedUser.walletBalance,
+                        note: `Auto-refund — stale checkout expired (Group ${order.paymentGroupId})`,
+                    });
+                }
+
+                if (txn) { txn.status = "failed"; await txn.save(); }
+            }
+        }
+
+        // Bulk cancel all stale orders
+        const staleIds = staleOrders.map(o => o._id);
+        await Order.updateMany(
+            { _id: { $in: staleIds } },
+            {
+                $set: { status: "CANCELLED", paymentStatus: "failed", cancelReason: "Auto-cancelled — payment timeout (15 min)" },
+                $push: { events: { status: "CANCELLED", note: "Cron: stale checkout auto-cancelled, stock & wallet restored" } }
+            }
+        );
+
+        logger.info(`[Cron] Auto-cancelled ${staleOrders.length} stale PENDING_PAYMENT orders (${processedGroups.size} groups). Stock & wallet restored.`);
+    } catch (error) {
+        logger.error("[Cron] Error sweeping stale orders:", error);
+    }
+});

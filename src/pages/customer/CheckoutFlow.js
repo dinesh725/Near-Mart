@@ -35,6 +35,11 @@ export function CheckoutFlow({ onClose, onSuccess }) {
     const [processingMsg, setProcessingMsg] = useState("Preparing your order...");
     const [result, setResult] = useState(null);
 
+    // Generate a unique idempotency key per checkout session to prevent double-deductions
+    const idempotencyKey = useMemo(() => {
+        try { return crypto.randomUUID(); } catch { return `ik_${Date.now()}_${Math.random().toString(36).slice(2)}`; }
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
     const walletBalance = user?.walletBalance || 0;
 
     useEffect(() => { loadRazorpayScript(); }, []);
@@ -91,9 +96,14 @@ export function CheckoutFlow({ onClose, onSuccess }) {
 
             const checkoutItems = cartItems.map(item => ({ productId: item.id, qty: item.qty }));
             const token = localStorage.getItem("nm_access_token");
-            const headers = { "Content-Type": "application/json", "Authorization": `Bearer ${token}` };
+            const headers = {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${token}`,
+                "Idempotency-Key": idempotencyKey,
+            };
 
             let backendOrders = null;
+            let activePaymentGroupId = null; // Track for cancellation
 
             // ── Path 1: Try full Razorpay checkout ────────────────────────────
             try {
@@ -114,6 +124,8 @@ export function CheckoutFlow({ onClose, onSuccess }) {
                 const checkoutData = await checkoutRes.json();
 
                 if (checkoutData.ok) {
+                    activePaymentGroupId = checkoutData.orders?.[0]?.paymentGroupId || null;
+
                     if (checkoutData.needsGatewayPayment) {
                         setProcessingMsg("Opening payment gateway...");
                         const loaded = await loadRazorpayScript();
@@ -126,29 +138,43 @@ export function CheckoutFlow({ onClose, onSuccess }) {
                                 description: "Order Payment",
                                 order_id: checkoutData.razorpayOrderId,
                                 prefill: { name: user?.name || "", email: user?.email || "", contact: user?.phone || "" },
-                                notes: { paymentGroupId: checkoutData.orders?.[0]?.paymentGroupId || "" },
+                                notes: { paymentGroupId: activePaymentGroupId || "" },
                                 theme: { color: "#6366F1" },
                             };
                             setProcessingMsg("Complete payment in the Razorpay window...");
-                            const rzResponse = await openRazorpayCheckout(rzOptions);
-                            setProcessingMsg("Verifying payment...");
-                            const verifyData = await verifyPayment(rzResponse);
-                            backendOrders = verifyData.orders;
+                            try {
+                                const rzResponse = await openRazorpayCheckout(rzOptions);
+                                setProcessingMsg("Verifying payment...");
+                                const verifyData = await verifyPayment(rzResponse);
+                                backendOrders = verifyData.orders;
 
-                            // Check if webhook delayed for hybrid/razorpay confirmation
-                            if (backendOrders && backendOrders.length > 0 && backendOrders[0].status === "PENDING_PAYMENT") {
-                                setProcessingMsg("Waiting for payment confirmation...");
-                                let attempts = 0;
-                                while (attempts < 5) {
-                                    await new Promise(r => setTimeout(r, 2000));
-                                    const pollRes = await fetch(`${API_BASE}/orders/${backendOrders[0]._id}`, { headers });
-                                    const pollData = await pollRes.json();
-                                    if (pollData.ok && pollData.order.status !== "PENDING_PAYMENT") {
-                                        backendOrders = [pollData.order]; // Simplified, would need robust group fetching
-                                        break;
+                                // Check if webhook delayed for hybrid/razorpay confirmation
+                                if (backendOrders && backendOrders.length > 0 && backendOrders[0].status === "PENDING_PAYMENT") {
+                                    setProcessingMsg("Waiting for payment confirmation...");
+                                    let attempts = 0;
+                                    while (attempts < 5) {
+                                        await new Promise(r => setTimeout(r, 2000));
+                                        const pollRes = await fetch(`${API_BASE}/orders/${backendOrders[0]._id}`, { headers });
+                                        const pollData = await pollRes.json();
+                                        if (pollData.ok && pollData.order.status !== "PENDING_PAYMENT") {
+                                            backendOrders = [pollData.order];
+                                            break;
+                                        }
+                                        attempts++;
                                     }
-                                    attempts++;
                                 }
+                            } catch (rzErr) {
+                                // User closed the popup or payment failed — cancel the checkout to restore stock & wallet
+                                if (activePaymentGroupId) {
+                                    try {
+                                        await fetch(`${API_BASE}/payments/cancel/${activePaymentGroupId}`, {
+                                            method: "POST", headers,
+                                        });
+                                    } catch (cancelErr) {
+                                        console.warn("Cancel cleanup failed:", cancelErr.message);
+                                    }
+                                }
+                                throw rzErr; // Re-throw so ResultStep shows the error
                             }
                         }
                     } else {
@@ -225,7 +251,7 @@ export function CheckoutFlow({ onClose, onSuccess }) {
         } finally {
             setStep(4);
         }
-    }, [user, selectedAddress, paymentMethod, cartItems, clearCart, setBackendOrder, openRazorpayCheckout, verifyPayment, placeOrderFn]);
+    }, [user, selectedAddress, paymentMethod, cartItems, clearCart, setBackendOrder, openRazorpayCheckout, verifyPayment, placeOrderFn, idempotencyKey]);
 
 
     const handleDone = () => {

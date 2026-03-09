@@ -331,18 +331,22 @@ router.post("/webhook", express.raw({ type: "application/json" }), async (req, r
     try {
         const rawBody = req.body.toString();
 
-        // 1. Verify webhook signature — REJECT unsigned/tampered requests
+        // 1. Verify webhook signature — HARD REJECT unsigned/tampered requests
         const receivedSignature = req.headers["x-razorpay-signature"];
-        if (receivedSignature) {
-            const isValid = verifyWebhookSignature(rawBody, receivedSignature);
-            if (!isValid) {
-                logger.warn("Webhook signature verification failed", { signature: receivedSignature });
-                return res.status(400).json({ ok: false, error: "Invalid webhook signature" });
-            }
-            logger.info("Webhook signature verified ✓");
-        } else {
-            logger.warn("Webhook received without signature header");
+        if (!receivedSignature) {
+            logger.warn("Webhook REJECTED — missing x-razorpay-signature header", {
+                ip: req.ip, userAgent: req.headers["user-agent"],
+            });
+            return res.status(401).json({ ok: false, error: "Missing webhook signature" });
         }
+        const isValid = verifyWebhookSignature(rawBody, receivedSignature);
+        if (!isValid) {
+            logger.warn("Webhook REJECTED — signature verification failed", {
+                signature: receivedSignature, ip: req.ip,
+            });
+            return res.status(401).json({ ok: false, error: "Invalid webhook signature" });
+        }
+        logger.info("Webhook signature verified ✓");
 
         const event = JSON.parse(rawBody);
         logger.info("Razorpay webhook event", { event: event.event, payloadId: event.payload?.payment?.entity?.id });
@@ -650,6 +654,76 @@ router.get("/admin/summary",
             const failedCount = await Transaction.countDocuments({ status: "failed" });
 
             res.json({ ok: true, summary: { ...summary, refundedCount, pendingCount, failedCount } });
+        } catch (err) { next(err); }
+    }
+);
+
+// ── Cancel / Abandon Checkout (restore stock + wallet) ────────────────────────
+// Called by frontend when user closes the Razorpay popup or the gateway fails
+router.post("/cancel/:paymentGroupId",
+    authenticate,
+    async (req, res, next) => {
+        try {
+            const { paymentGroupId } = req.params;
+            const orders = await Order.find({ paymentGroupId, customerId: req.user._id });
+            if (!orders || orders.length === 0) throw new NotFound("No orders found for this payment group");
+
+            // Only allow cancellation of PENDING_PAYMENT orders
+            const pendingOrders = orders.filter(o => o.status === "PENDING_PAYMENT");
+            if (pendingOrders.length === 0) {
+                return res.json({ ok: true, message: "Orders already processed — no cancellation needed" });
+            }
+
+            // 1. Cancel all pending orders
+            await Order.updateMany(
+                { paymentGroupId, status: "PENDING_PAYMENT" },
+                {
+                    $set: { status: "CANCELLED", paymentStatus: "failed", cancelReason: "User abandoned checkout" },
+                    $push: { events: { status: "CANCELLED", note: "Checkout abandoned — stock & wallet restored" } }
+                }
+            );
+
+            // 2. Restore stock across ALL cancelled sub-orders
+            for (const order of pendingOrders) {
+                for (const item of order.items) {
+                    await Product.findByIdAndUpdate(item.productId, { $inc: { stock: item.qty } });
+                }
+            }
+
+            // 3. Refund wallet portion if hybrid/wallet payment was partially deducted
+            const txn = await Transaction.findOne({ paymentId: paymentGroupId, status: "pending" });
+            if (txn && txn.walletAmount > 0) {
+                const user = await User.findById(req.user._id);
+                const updatedUser = await User.findByIdAndUpdate(
+                    req.user._id,
+                    { $inc: { walletBalance: txn.walletAmount } },
+                    { new: true }
+                );
+                await WalletTransaction.create({
+                    userId: req.user._id, type: "credit", amount: txn.walletAmount,
+                    category: "refund",
+                    balanceBefore: user.walletBalance,
+                    balanceAfter: updatedUser.walletBalance,
+                    note: `Refund — checkout cancelled for Group ${paymentGroupId}`,
+                });
+                logger.info("Checkout cancel: wallet refunded", {
+                    paymentGroupId, walletRefund: txn.walletAmount,
+                });
+            }
+
+            // 4. Mark the transaction as failed
+            if (txn) {
+                txn.status = "failed";
+                await txn.save();
+            }
+
+            await notify("customer", "Checkout cancelled. Stock and wallet restored.", "alert", req.user._id);
+
+            logger.info("Checkout cancelled by user", {
+                paymentGroupId, ordersCancelled: pendingOrders.length,
+            });
+
+            res.json({ ok: true, message: "Checkout cancelled — stock & wallet restored" });
         } catch (err) { next(err); }
     }
 );
