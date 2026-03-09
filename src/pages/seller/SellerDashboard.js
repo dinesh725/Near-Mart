@@ -132,7 +132,7 @@ export function SellerDashboard({ activeTab }) {
             setToast({ msg: `${form.name} added to catalog!`, icon: "🎉" });
         }
         setModal(null); setForm({});
-    }, [modal, form, updatePrice, updateStock, addProduct]);
+    }, [modal, form, updatePrice, updateStock, addProduct, user]);
 
     const handleDeleteProduct = useCallback(async (productId, productName) => {
         if (!window.confirm(`Are you sure you want to delete ${productName}? This will permanently remove it from your inventory and the customer app.`)) return;
