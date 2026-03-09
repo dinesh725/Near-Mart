@@ -991,7 +991,10 @@ router.post("/:id/reorder",
                     if (prod.stock < 1) return "Out of stock";
                     
                     const seller = prod.sellerId;
-                    if (!seller) return "Seller no longer available";
+                    
+                    // If no seller is attached, it's a valid platform/Dark Store product
+                    if (!seller) return null; 
+                    
                     if (seller.isOpen === false) return "Seller is currently closed";
                     
                     const sellerLat = seller.location?.coordinates?.[1] || seller.location?.lat;
