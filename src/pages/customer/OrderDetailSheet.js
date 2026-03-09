@@ -40,6 +40,7 @@ function formatDate(d) {
 export function OrderDetailSheet({ order: initialOrder, onClose, onTrack, onCancel, onRate, onReorder, onFlag }) {
     const [order, setOrder] = useState(initialOrder);
     const [activeSection, setActiveSection] = useState("details");
+    const [showSupport, setShowSupport] = useState(false);
 
     const sc = STATUS_CONFIG[order.status] || { color: P.textMuted, icon: "❓", label: order.status, step: 0 };
     const canCancel = ["PENDING_PAYMENT", "CONFIRMED", "PREPARING"].includes(order.status);
@@ -485,11 +486,25 @@ export function OrderDetailSheet({ order: initialOrder, onClose, onTrack, onCanc
                             ✕ Cancel
                         </button>
                     )}
+                    
+                    {/* ── NEW: Help Button ── */}
+                    <button className="p-btn" style={{ flex: 1, background: `${P.accent}12`, color: P.accent, border: `1px solid ${P.accent}33` }} onClick={() => setShowSupport(true)}>
+                        🎧 Help / Support
+                    </button>
+
                     {!canTrack && !canRate && !canReorder && !canCancel && (
                         <button className="p-btn p-btn-ghost" style={{ flex: 1 }} onClick={onClose}>Close</button>
                     )}
                 </div>
             </div>
+
+            {/* ── Help / Support Issue Modal ── */}
+            {showSupport && (
+                <SupportIssueModal 
+                    order={order} 
+                    onClose={() => setShowSupport(false)} 
+                />
+            )}
         </div>,
         document.body
     );
@@ -499,6 +514,143 @@ function BillRow({ label, value, muted, color }) {
     return (
         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: color || (muted ? P.textMuted : P.text) }}>
             <span>{label}</span><span style={{ fontWeight: muted ? 400 : 600 }}>{value}</span>
+        </div>
+    );
+}
+
+// ── Item-Level Support Modal ───────────────────────────────────────────────────
+function SupportIssueModal({ order, onClose }) {
+    const [selectedItems, setSelectedItems] = useState([]);
+    const [reasonCategory, setReasonCategory] = useState("");
+    const [issue, setIssue] = useState("");
+    const [loading, setLoading] = useState(false);
+    const [success, setSuccess] = useState(false);
+
+    const toggleItem = (item) => {
+        setSelectedItems(prev => prev.some(p => p.productId === item.id || p.productId === item._id)
+            ? prev.filter(p => p.productId !== item.id && p.productId !== item._id)
+            : [...prev, { productId: item.id || item._id, name: item.name, qty: item.qty }]
+        );
+    };
+
+    const submitTicket = async () => {
+        if (!issue || !reasonCategory) return;
+        setLoading(true);
+        try {
+            // Send advanced ticket payload
+            await api.post("/tickets", {
+                orderId: order._id,
+                problemItems: selectedItems,
+                reasonCategory,
+                issue
+            });
+            setSuccess(true);
+        } catch (e) {
+            console.error(e);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const reasons = [
+        { id: "missing_item", label: "Item(s) Missing", icon: "📦" },
+        { id: "damaged_item", label: "Damaged/Spoiled", icon: "💥" },
+        { id: "wrong_item", label: "Wrong Item Received", icon: "🔄" },
+        { id: "quality_issue", label: "Poor Quality", icon: "🤢" },
+        { id: "delivery_delay", label: "Delivery Too Late", icon: "⏳" },
+        { id: "other", label: "Other Issue", icon: "ℹ️" },
+    ];
+
+    return (
+        <div style={{ position: "fixed", inset: 0, zIndex: 99999, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)", display: "flex", alignItems: "flex-end", justifyContent: "center" }} onClick={onClose}>
+            <div style={{ 
+                background: P.bg, width: "100%", maxWidth: 520, borderRadius: "24px 24px 0 0", 
+                padding: "0", maxHeight: "90vh", display: "flex", flexDirection: "column",
+                borderTop: `1px solid ${P.border}`, borderLeft: `1px solid ${P.border}`, borderRight: `1px solid ${P.border}`
+            }} onClick={e => e.stopPropagation()}>
+                
+                {/* Header */}
+                <div style={{ padding: "20px 24px 16px", borderBottom: `1px solid ${P.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                        <h2 style={{ fontSize: 18, fontWeight: 800, margin: 0 }}>Raise an Issue</h2>
+                        <div style={{ fontSize: 13, color: P.textMuted, marginTop: 4 }}>Order #{order._id?.slice(-6).toUpperCase()}</div>
+                    </div>
+                    <button onClick={onClose} style={{
+                        background: P.surface, border: `1px solid ${P.border}`, borderRadius: "50%", width: 32, height: 32,
+                        display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: P.textMuted, fontSize: 14,
+                    }}>✕</button>
+                </div>
+
+                <div style={{ flex: 1, overflowY: "auto", padding: 24 }} className="col gap20">
+                    {success ? (
+                        <div style={{ textAlign: "center", padding: "40px 0" }}>
+                            <div style={{ fontSize: 60, marginBottom: 16 }}>✅</div>
+                            <div style={{ fontWeight: 800, fontSize: 20, marginBottom: 8 }}>Ticket Submitted!</div>
+                            <div style={{ color: P.textMuted, fontSize: 14, marginBottom: 24 }}>Our support team is reviewing your issue and will respond shortly. You can track this in your Inbox.</div>
+                            <button className="p-btn p-btn-primary" onClick={onClose}>Done</button>
+                        </div>
+                    ) : (
+                        <>
+                            {/* Step 1: Select Items */}
+                            <div>
+                                <label style={{ fontSize: 13, fontWeight: 700, color: P.textDim, textTransform: "uppercase" }}>1. Which items have an issue? (Optional)</label>
+                                <div style={{ marginTop: 12, border: `1px solid ${P.border}`, borderRadius: 12, overflow: "hidden" }}>
+                                    {order.items?.map((item, i) => {
+                                        const isSelected = selectedItems.some(p => p.productId === (item.id || item._id));
+                                        return (
+                                            <div key={i} onClick={() => toggleItem(item)} style={{
+                                                padding: "12px 14px", display: "flex", alignItems: "center", gap: 12,
+                                                background: isSelected ? `${P.primary}10` : P.surface,
+                                                borderBottom: i < order.items.length - 1 ? `1px solid ${P.border}` : "none",
+                                                cursor: "pointer"
+                                            }}>
+                                                <div style={{ 
+                                                    width: 20, height: 20, borderRadius: 6, border: `2px solid ${isSelected ? P.primary : P.border}`,
+                                                    background: isSelected ? P.primary : "transparent", display: "flex", alignItems: "center", justifyContent: "center", color: P.card, fontSize: 12, fontWeight: 800
+                                                }}>
+                                                    {isSelected && "✓"}
+                                                </div>
+                                                <div style={{ display: "flex", alignItems: "center", background: P.card, padding: 6, borderRadius: 8, flexShrink: 0 }}>
+                                                    {item.imageUrl ? <img src={item.imageUrl} alt={item.name} style={{ width: 28, height: 28, objectFit: "cover", borderRadius: 4 }} /> : <span style={{ fontSize: 20 }}>📦</span>}
+                                                </div>
+                                                <div style={{ flex: 1, fontSize: 14, fontWeight: 600 }}>{item.name}</div>
+                                                <div style={{ fontSize: 13, color: P.textMuted }}>x{item.qty}</div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+
+                            {/* Step 2: Reason Category */}
+                            <div>
+                                <label style={{ fontSize: 13, fontWeight: 700, color: P.textDim, textTransform: "uppercase" }}>2. What is the issue?</label>
+                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 12 }}>
+                                    {reasons.map(r => (
+                                        <div key={r.id} onClick={() => setReasonCategory(r.id)} style={{
+                                            padding: "12px", borderRadius: 12, border: `2px solid ${reasonCategory === r.id ? P.primary : P.border}`,
+                                            background: reasonCategory === r.id ? `${P.primary}10` : P.surface,
+                                            cursor: "pointer", display: "flex", alignItems: "center", gap: 8, transition: "all .2s"
+                                        }}>
+                                            <span style={{ fontSize: 20 }}>{r.icon}</span>
+                                            <span style={{ fontSize: 13, fontWeight: reasonCategory === r.id ? 700 : 500 }}>{r.label}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Step 3: Description */}
+                            <div>
+                                <label style={{ fontSize: 13, fontWeight: 700, color: P.textDim, textTransform: "uppercase" }}>3. Describe the problem in detail</label>
+                                <textarea className="p-input" rows="4" style={{ marginTop: 12, resize: "none" }} placeholder="Please provide details so we can help you quickly..." value={issue} onChange={e => setIssue(e.target.value)} />
+                            </div>
+
+                            <button className="p-btn p-btn-primary" onClick={submitTicket} disabled={!issue || !reasonCategory || loading} style={{ height: 50, fontSize: 15 }}>
+                                {loading ? <span className="spinner" /> : "Submit Support Ticket 🚀"}
+                            </button>
+                        </>
+                    )}
+                </div>
+            </div>
         </div>
     );
 }

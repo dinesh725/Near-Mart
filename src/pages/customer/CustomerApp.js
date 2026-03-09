@@ -9,6 +9,8 @@ import { TrackOrderModal } from "../../components/Map/TrackOrderModal";
 import { MultiSellerSheet } from "../../components/MultiSellerSheet";
 import { OrdersPage } from "./OrdersPage";
 import { PullToRefresh } from "../../components/PullToRefresh";
+import api from "../../api/client";
+
 // ── SKELETON LOADING ──────────────────────────────────────────────────────────
 function SkeletonGrid() {
     return (
@@ -506,46 +508,175 @@ export function CustomerApp({ activeTab, setActiveTab }) {
         />
     );
 
-    // ── SUPPORT TAB ───────────────────────────────────────────────────────────
+    // ── SUPPORT TAB (Unified Inbox) ───────────────────────────────────────────
     const SupportTab = () => {
-        const { flagOrder } = useStore();
-        const [issue, setIssue] = useState("");
-        const [selectedOrder, setSelectedOrder] = useState(myOrders[0]?.id || "");
-        const [sent, setSent] = useState(false);
+        const [tickets, setTickets] = useState([]);
+        const [loading, setLoading] = useState(true);
+        const [selectedTicket, setSelectedTicket] = useState(null);
+        const [replyText, setReplyText] = useState("");
+        const chatEndRef = useRef(null);
 
-        const submit = () => {
-            if (!issue || !selectedOrder) return;
-            flagOrder(selectedOrder, issue);
-            setSent(true);
-            setIssue("");
-            showToast("Support ticket submitted! We'll respond within 30 min.", "success", "🎧");
+        useEffect(() => {
+            fetchTickets();
+        }, []);
+
+        useEffect(() => {
+            chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+        }, [selectedTicket?.messages]);
+
+        const fetchTickets = async () => {
+            setLoading(true);
+            try {
+                const res = await api.get("/tickets");
+                if (res.ok && res.tickets) setTickets(res.tickets);
+            } catch (e) {
+                console.error("Failed to load tickets", e);
+            } finally {
+                setLoading(false);
+            }
         };
 
+        const handleSendReply = async () => {
+            if (!replyText.trim() || !selectedTicket) return;
+            const text = replyText;
+            setReplyText("");
+            try {
+                // Optimistic UI update
+                const newMsg = { from: "customer", text, createdAt: new Date().toISOString() };
+                setSelectedTicket(prev => ({ ...prev, messages: [...prev.messages, newMsg] }));
+
+                const res = await api.post(`/tickets/${selectedTicket._id}/message`, { text, from: "customer" });
+                if (res.ok) setSelectedTicket(res.ticket);
+            } catch (e) {
+                console.error("Failed to send message", e);
+            }
+        };
+
+        if (loading && !tickets.length) {
+            return (
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "80px 0" }}>
+                    <div className="spinner" style={{ width: 44, height: 44, borderWidth: 3, marginBottom: 20 }} />
+                    <div style={{ fontWeight: 700, color: P.textMuted, fontSize: 15 }}>Loading Inbox...</div>
+                </div>
+            );
+        }
+
+        // ── Chat View ──
+        if (selectedTicket) {
+            return (
+                <div className="col" style={{ 
+                    // Make it take the full screen height available below the header
+                    position: "fixed", inset: 0, top: 0, bottom: 65, zIndex: 99, 
+                    background: P.bg, display: "flex", flexDirection: "column" 
+                }}>
+                    {/* Header */}
+                    <div style={{ padding: "20px 20px 16px", display: "flex", alignItems: "center", gap: 14, borderBottom: `1px solid ${P.border}`, background: P.card, boxShadow: `0 4px 20px rgba(0,0,0,0.1)` }}>
+                        <button onClick={() => setSelectedTicket(null)} style={{ background: "none", border: "none", fontSize: 24, cursor: "pointer", color: P.text }}>←</button>
+                        <div>
+                            <h2 style={{ fontSize: 16, fontWeight: 800, margin: 0 }}>Ticket #{selectedTicket._id?.slice(-6).toUpperCase()}</h2>
+                            <div style={{ fontSize: 12, color: P.textMuted, marginTop: 2, fontWeight: 500 }}>
+                                {selectedTicket.problemItems?.length > 0 ? `${selectedTicket.problemItems.length} items flagged` : "General Order Issue"}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Chat Area */}
+                    <div style={{ flex: 1, overflowY: "auto", padding: 24, display: "flex", flexDirection: "column", gap: 16 }}>
+                        <div style={{ 
+                            background: `${P.primary}10`, border: `1px solid ${P.primary}33`, borderRadius: 16, 
+                            padding: 16, alignSelf: "center", maxWidth: "90%", textAlign: "center", marginBottom: 10
+                        }}>
+                            <div style={{ fontSize: 12, fontWeight: 800, color: P.primary, textTransform: "uppercase", marginBottom: 6 }}>Original Issue</div>
+                            <div style={{ fontSize: 14, fontWeight: 600, color: P.text }}>{selectedTicket.issue}</div>
+                        </div>
+
+                        {selectedTicket.messages?.map((msg, idx) => (
+                            <div key={idx} style={{ alignSelf: msg.from === "customer" ? "flex-end" : "flex-start", maxWidth: "85%" }}>
+                                <div style={{ 
+                                    padding: "12px 16px", borderRadius: 20, 
+                                    background: msg.from === "customer" ? P.primary : P.surface, 
+                                    color: msg.from === "customer" ? "white" : P.text,
+                                    border: msg.from === "customer" ? "none" : `1px solid ${P.border}`,
+                                    borderBottomRightRadius: msg.from === "customer" ? 4 : 20,
+                                    borderBottomLeftRadius: msg.from !== "customer" ? 4 : 20,
+                                    fontSize: 14, lineHeight: 1.5, fontWeight: 500
+                                }}>
+                                    {msg.text}
+                                </div>
+                                <div style={{ fontSize: 10, color: P.textDim, marginTop: 6, fontWeight: 600, textAlign: msg.from === "customer" ? "right" : "left" }}>
+                                    {new Date(msg.createdAt || msg.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </div>
+                            </div>
+                        ))}
+                        <div ref={chatEndRef} />
+                    </div>
+
+                    {/* Input Field */}
+                    {selectedTicket.status !== "resolved" ? (
+                        <div style={{ padding: "16px 20px", borderTop: `1px solid ${P.border}`, background: P.card, display: "flex", gap: 12 }}>
+                            <input type="text" className="p-input" value={replyText} onChange={e => setReplyText(e.target.value)} placeholder="Type your reply here..." style={{ flex: 1, borderRadius: 24, paddingLeft: 20 }} onKeyDown={e => e.key === "Enter" && handleSendReply()} />
+                            <button className="p-btn p-btn-primary" onClick={handleSendReply} disabled={!replyText.trim()} style={{ borderRadius: 24, padding: "0 24px" }}>Send ↑</button>
+                        </div>
+                    ) : (
+                        <div style={{ padding: 20, borderTop: `1px solid ${P.border}`, background: P.surface, textAlign: "center", color: P.success, fontSize: 14, fontWeight: 700 }}>
+                            ✅ This ticket was resolved.
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        // ── Inbox List View ──
         return (
-            <div className="col gap16">
-                <h2 style={{ fontWeight: 800, fontSize: 20 }}>💬 Raise a Support Ticket</h2>
-                {sent ? (
-                    <div style={{ textAlign: "center", padding: "60px 0" }}>
-                        <div style={{ fontSize: 60, marginBottom: 16 }}>✅</div>
-                        <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 8 }}>Ticket submitted!</div>
-                        <div style={{ color: P.textMuted, fontSize: 14, marginBottom: 20 }}>Our support team will respond within 30 minutes</div>
-                        <button className="p-btn p-btn-ghost" onClick={() => setSent(false)}>Raise another ticket</button>
+            <div className="col gap20" style={{ paddingBottom: 40 }}>
+                <h2 style={{ fontWeight: 800, fontSize: 24, margin: "10px 0 0" }}>📬 Support Inbox</h2>
+                
+                {tickets.length === 0 ? (
+                    <div style={{ textAlign: "center", padding: "60px 20px", background: P.card, borderRadius: 24, border: `1px dashed ${P.border}` }}>
+                        <div style={{ fontSize: 64, marginBottom: 20 }}>🎧</div>
+                        <div style={{ fontWeight: 800, fontSize: 20, marginBottom: 10 }}>No Active issues</div>
+                        <div style={{ color: P.textMuted, fontSize: 14, maxWidth: 280, margin: "0 auto", lineHeight: 1.5 }}>
+                            Need help with an order? Go to your Orders tab and tap "Help / Support" to contact us.
+                        </div>
+                        <button className="p-btn p-btn-primary" style={{ marginTop: 24, width: "100%", maxWidth: 220 }} onClick={() => setActiveTab(2)}>Go to Orders</button>
                     </div>
                 ) : (
-                    <div style={{ background: P.card, border: `1px solid ${P.border}`, borderRadius: 16, padding: "20px" }} className="col gap14">
-                        <div className="p-field">
-                            <label htmlFor="sup-order">Select Order</label>
-                            <select id="sup-order" className="p-input" value={selectedOrder} onChange={e => setSelectedOrder(e.target.value)}>
-                                {myOrders.map(o => <option key={o.id} value={o.id}>{o.id} — ₹{o.total}</option>)}
-                            </select>
-                        </div>
-                        <div className="p-field">
-                            <label htmlFor="sup-issue">Describe your issue</label>
-                            <input id="sup-issue" type="text" className="p-input" placeholder="e.g. Missing item, Wrong product, Delay..." value={issue} onChange={e => setIssue(e.target.value)} />
-                        </div>
-                        <button className="p-btn p-btn-primary" onClick={submit} disabled={!issue || !selectedOrder}>
-                            Submit Ticket 🎧
-                        </button>
+                    <div className="col gap14">
+                        {tickets.map(t => {
+                            const unread = t.status !== "resolved" && t.messages?.length > 0 && t.messages[t.messages.length - 1].from !== "customer";
+                            return (
+                                <div key={t._id} onClick={() => setSelectedTicket(t)} style={{ 
+                                    background: P.card, borderRadius: 16, padding: "18px", cursor: "pointer",
+                                    border: unread ? `1px solid ${P.primary}` : `1px solid ${P.border}`,
+                                    position: "relative", overflow: "hidden"
+                                }}>
+                                    {unread && <div style={{ position: "absolute", top: 0, bottom: 0, left: 0, width: 4, background: P.primary }} />}
+                                    
+                                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10, alignItems: "center" }}>
+                                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                            <span style={{ fontSize: 20 }}>
+                                                {t.reasonCategory === "missing_item" ? "📦" : t.reasonCategory === "damaged_item" ? "💥" : t.reasonCategory === "delivery_delay" ? "⏳" : "ℹ️"}
+                                            </span>
+                                            <span style={{ fontWeight: 800, fontSize: 14 }}>
+                                                {t.reasonCategory?.replace("_", " ").toUpperCase() || "SUPPORT ISSUE"}
+                                            </span>
+                                        </div>
+                                        <span style={{ 
+                                            fontSize: 10, fontWeight: 800, padding: "4px 10px", borderRadius: 8, textTransform: "uppercase", letterSpacing: 0.5,
+                                            background: t.status === "open" ? `${P.danger}15` : t.status === "in_progress" ? `${P.warning}15` : `${P.success}15`, 
+                                            color: t.status === "open" ? P.danger : t.status === "in_progress" ? P.warning : P.success 
+                                        }}>
+                                            {t.status}
+                                        </span>
+                                    </div>
+                                    <div style={{ fontSize: 14, color: P.text, marginBottom: 14, fontWeight: 600, lineHeight: 1.4 }}>{t.issue}</div>
+                                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: P.textMuted, borderTop: `1px solid ${P.border}`, paddingTop: 12, fontWeight: 600 }}>
+                                        <span>Order #{t.orderId?.slice(-6).toUpperCase()}</span>
+                                        <span>{new Date(t.createdAt).toLocaleDateString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
+                                    </div>
+                                </div>
+                            );
+                        })}
                     </div>
                 )}
             </div>
