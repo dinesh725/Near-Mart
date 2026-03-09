@@ -135,8 +135,9 @@ export function CustomerApp({ activeTab, setActiveTab }) {
 
     const [gpsStatus, setGpsStatus] = useState("fetching"); // "fetching", "located", or "failed"
 
-    // Auto-detect customer GPS on mount (once)
-    useEffect(() => {
+    const retryLocation = useCallback(() => {
+        setGpsStatus("fetching");
+        setLoading(true);
         if (navigator.geolocation) {
             navigator.geolocation.getCurrentPosition(
                 pos => {
@@ -146,7 +147,7 @@ export function CustomerApp({ activeTab, setActiveTab }) {
                 (err) => {
                     console.warn("Geolocation failed or denied:", err);
                     setGpsStatus("failed");
-                    setLoading(false); // Stop loader if geolocation failed
+                    setLoading(false);
                 },
                 { enableHighAccuracy: false, timeout: 8000 }
             );
@@ -156,19 +157,18 @@ export function CustomerApp({ activeTab, setActiveTab }) {
         }
     }, []);
 
+    // Auto-detect customer GPS on mount (once)
+    useEffect(() => {
+        retryLocation();
+    }, [retryLocation]);
+
     // Fetch dynamic distances/etas when GPS changes
     const [liveProducts, setLiveProducts] = useState([]);
     const [noLocalSellers, setNoLocalSellers] = useState(false);
 
     useEffect(() => {
-        // If we fail to get GPS, fallback to complete global catalog
-        if (gpsStatus === "failed") {
-            setLiveProducts(filtered);
-            return;
-        }
-        
         // Wait until we have GPS before doing anything else
-        if (!customerGps) return;
+        if (gpsStatus !== "located" || !customerGps) return;
 
         const fetchLocalCatalog = async () => {
             setLoading(true);
@@ -208,7 +208,8 @@ export function CustomerApp({ activeTab, setActiveTab }) {
                     setNoLocalSellers(true);
                 }
             } catch (err) {
-                setLiveProducts(filtered); // Fallback
+                // Keep it empty on error
+                setLiveProducts([]);
             } finally {
                 setLoading(false);
             }
@@ -216,10 +217,10 @@ export function CustomerApp({ activeTab, setActiveTab }) {
 
         fetchLocalCatalog();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [customerGps, search, category, products.length, gpsStatus]);
+    }, [customerGps, search, category, gpsStatus]);
 
-    // Actually, to prevent infinite loops, we separate the derived state:
-    const displayProducts = customerGps && liveProducts.length > 0 ? liveProducts : filtered;
+    // Derived state for the UI
+    const displayProducts = liveProducts;
 
     const handleCheckout = useCallback(() => {
         if (cartCount === 0) return;
@@ -268,7 +269,9 @@ export function CustomerApp({ activeTab, setActiveTab }) {
     }, [customerGps]);
 
     const handleAddToCart = useCallback((id) => {
-        const p = products.find(x => x.id === id);
+        const p = products.find(x => x.id === id); // `products` is global store, we can use it to get product details quickly
+        // If not found in store, we could look in liveProducts, but `addToCart` from context uses `products`.
+        // We will pass the necessary product ID to addToCart which will add it if it exists in the full catalog which it should.
         addToCart(id);
         if (!cart[id]) showToast(`${p?.name || "Item"} added to cart!`, "success", "🛒");
     }, [addToCart, cart, products, showToast]);
@@ -282,7 +285,7 @@ export function CustomerApp({ activeTab, setActiveTab }) {
                 <div style={{ fontSize: 13, color: "rgba(255,255,255,0.7)", marginBottom: 4 }}>Welcome back,</div>
                 <div style={{ fontSize: 20, fontWeight: 800, color: "white" }}>{user?.name} 👋</div>
                 <div style={{ fontSize: 13, color: "rgba(255,255,255,0.75)", marginTop: 6 }}>
-                    📍 {user?.address || (customerGps ? `${customerGps.lat.toFixed(4)}°N, ${customerGps.lng.toFixed(4)}°E` : "Detecting location...")} &nbsp;·&nbsp; 💰 Wallet: ₹{user?.walletBalance?.toLocaleString("en-IN") || "0"}
+                    📍 {user?.address || (customerGps ? `${customerGps.lat.toFixed(4)}°N, ${customerGps.lng.toFixed(4)}°E` : "Location Required")} &nbsp;·&nbsp; 💰 Wallet: ₹{user?.walletBalance?.toLocaleString("en-IN") || "0"}
                 </div>
 
             </div>
@@ -311,12 +314,23 @@ export function CustomerApp({ activeTab, setActiveTab }) {
             {/* Product Grid */}
             {loading ? (
                 <SkeletonGrid />
+            ) : gpsStatus === "failed" ? (
+                <div style={{ textAlign: "center", padding: "60px 20px", color: P.textMuted }}>
+                    <div style={{ fontSize: 60, marginBottom: 16 }}>📍</div>
+                    <div style={{ fontWeight: 800, fontSize: 18, marginBottom: 8, color: P.text }}>Location Required</div>
+                    <div style={{ fontSize: 14, maxWidth: 280, margin: "0 auto", lineHeight: 1.5, marginBottom: 20 }}>
+                        We need your location to show products available for delivery in your area. Please enable location services.
+                    </div>
+                    <button className="p-btn p-btn-primary" style={{ padding: "10px 24px" }} onClick={retryLocation}>
+                        Enable Location & Retry
+                    </button>
+                </div>
             ) : noLocalSellers ? (
                 <div style={{ textAlign: "center", padding: "60px 0", color: P.textMuted }}>
                     <div style={{ fontSize: 60, marginBottom: 16 }}>🌍</div>
                     <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 8 }}>No Sellers Nearby</div>
                     <div style={{ fontSize: 13, maxWidth: 260, margin: "0 auto" }}>We are not currently serving your exact geographic area. Sellers are required to be within 5km.</div>
-                    <button className="p-btn p-btn-ghost" style={{ marginTop: 16 }} onClick={() => setNoLocalSellers(false)}>View Global Catalog</button>
+                    {/* Intentionally removed the "View Global Catalog" fallback button entirely, per user's strict instructions to avoid bypassing the system */}
                 </div>
             ) : displayProducts.length === 0 ? (
                 <div style={{ textAlign: "center", padding: "60px 0", color: P.textMuted }}>
