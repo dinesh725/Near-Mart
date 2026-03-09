@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
+import ReactDOM from "react-dom";
 import { P } from "../../theme/theme";
 import api from "../../api/client";
 import socketManager from "../../utils/socketManager";
@@ -244,7 +245,8 @@ function CancelModal({ order, onClose, onConfirm }) {
         onClose();
     };
 
-    return (
+    if (typeof document === 'undefined') return null;
+    return ReactDOM.createPortal(
         <div style={{ position: "fixed", inset: 0, zIndex: 9999, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={onClose}>
             <div style={{ background: P.card, border: `1px solid ${P.border}`, borderRadius: 20, padding: 24, maxWidth: 400, width: "100%" }} onClick={e => e.stopPropagation()}>
                 <h3 style={{ fontWeight: 800, fontSize: 18, margin: "0 0 16px" }}>Cancel Order?</h3>
@@ -265,7 +267,8 @@ function CancelModal({ order, onClose, onConfirm }) {
                     </button>
                 </div>
             </div>
-        </div>
+        </div>,
+        document.body
     );
 }
 
@@ -283,7 +286,8 @@ function RateModal({ order, onClose, onSubmit }) {
         onClose();
     };
 
-    return (
+    if (typeof document === 'undefined') return null;
+    return ReactDOM.createPortal(
         <div style={{ position: "fixed", inset: 0, zIndex: 9999, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={onClose}>
             <div style={{ background: P.card, border: `1px solid ${P.border}`, borderRadius: 20, padding: 24, maxWidth: 400, width: "100%", textAlign: "center" }} onClick={e => e.stopPropagation()}>
                 <div style={{ fontSize: 48, marginBottom: 8 }}>⭐</div>
@@ -315,7 +319,8 @@ function RateModal({ order, onClose, onSubmit }) {
                     </button>
                 </div>
             </div>
-        </div>
+        </div>,
+        document.body
     );
 }
 

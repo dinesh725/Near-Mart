@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import ReactDOM from "react-dom";
 import { P } from "../../theme/theme";
 import api from "../../api/client";
 
@@ -62,7 +63,9 @@ export function OrderDetailSheet({ order: initialOrder, onClose, onTrack, onCanc
     // ── Get tracking step index ───────────────────────────────────────────────
     const currentStepIdx = isCancelled ? -1 : TRACKING_STEPS.findIndex(s => s.status === order.status);
 
-    return (
+    if (typeof document === 'undefined') return null;
+
+    return ReactDOM.createPortal(
         <div className="modal-overlay" onClick={onClose} style={{ zIndex: 9500 }}>
             <div className="modal-sheet" onClick={e => e.stopPropagation()} style={{
                 maxWidth: 520, maxHeight: "92vh", padding: 0, overflow: "hidden",
@@ -75,30 +78,30 @@ export function OrderDetailSheet({ order: initialOrder, onClose, onTrack, onCanc
                 }}>
                     <div className="modal-handle" />
 
-                    {/* Status badge + order ID */}
+                    {/* Status badge + close button */}
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                         <div>
                             <div style={{ fontSize: 11, color: P.textMuted, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 4 }}>Order Details</div>
                             <div style={{ fontWeight: 800, fontSize: 20 }}>#{order._id?.slice(-6).toUpperCase()}</div>
                             <div style={{ fontSize: 12, color: P.textMuted, marginTop: 2 }}>{formatDateTime(order.createdAt)}</div>
                         </div>
-                        <div style={{
-                            background: sc.color + "18", color: sc.color,
-                            border: `1.5px solid ${sc.color}44`, borderRadius: 20,
-                            padding: "6px 14px", fontSize: 12, fontWeight: 700,
-                            display: "flex", alignItems: "center", gap: 5,
-                        }}>
-                            {sc.icon} {sc.label}
+                        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8 }}>
+                            <button onClick={onClose} style={{
+                                background: P.surface, border: `1px solid ${P.border}`, borderRadius: "50%", width: 32, height: 32,
+                                display: "flex", alignItems: "center", justifyContent: "center",
+                                cursor: "pointer", color: P.textMuted, fontSize: 14,
+                            }}>✕</button>
+
+                            <div style={{
+                                background: sc.color + "18", color: sc.color,
+                                border: `1.5px solid ${sc.color}44`, borderRadius: 20,
+                                padding: "6px 14px", fontSize: 12, fontWeight: 700,
+                                display: "flex", alignItems: "center", gap: 5,
+                            }}>
+                                {sc.icon} {sc.label}
+                            </div>
                         </div>
                     </div>
-
-                    {/* Close button */}
-                    <button onClick={onClose} style={{
-                        position: "absolute", top: 16, right: 16, background: P.surface,
-                        border: `1px solid ${P.border}`, borderRadius: "50%", width: 32, height: 32,
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                        cursor: "pointer", color: P.textMuted, fontSize: 14,
-                    }}>✕</button>
                 </div>
 
                 {/* ── Section Tabs ─────────────────────────────────────────────── */}
@@ -487,7 +490,8 @@ export function OrderDetailSheet({ order: initialOrder, onClose, onTrack, onCanc
                     )}
                 </div>
             </div>
-        </div>
+        </div>,
+        document.body
     );
 }
 
