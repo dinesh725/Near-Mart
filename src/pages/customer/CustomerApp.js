@@ -116,7 +116,7 @@ function CartFAB({ count, total, onClick }) {
 // ── MAIN COMPONENT ────────────────────────────────────────────────────────────
 export function CustomerApp({ activeTab, setActiveTab }) {
     const { user } = useAuth();
-    const { products, cart, cartCount, cartTotal, addToCart, removeFromCart, clearCart, setCartDirect, orders, fetchOrders, setBackendOrder, showToast } = useStore();
+    const { products, cart, cartCount, cartTotal, addToCart, removeFromCart, clearCart, setCartDirect, fetchOrders, setBackendOrder, showToast } = useStore();
     const [search, setSearch] = useState("");
     const [category, setCategory] = useState("All");
     const [showCheckout, setShowCheckout] = useState(false);
@@ -126,8 +126,6 @@ export function CustomerApp({ activeTab, setActiveTab }) {
     const [multiSellerData, setMultiSellerData] = useState(null); // { productName, variants }
     const [customerGps, setCustomerGps] = useState(null);
 
-    // Filter orders belonging to this customer — backend orders use customerId field or _id in items
-    const myOrders = orders.filter(o => o.customerId === user?.id || o.customerId === user?._id);
     const categories = ["All", ...new Set(products.map(p => p.category))];
 
 
