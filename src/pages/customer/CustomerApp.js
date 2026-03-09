@@ -8,7 +8,7 @@ import { WalletPage } from "./WalletPage";
 import { TrackOrderModal } from "../../components/Map/TrackOrderModal";
 import { MultiSellerSheet } from "../../components/MultiSellerSheet";
 import { OrdersPage } from "./OrdersPage";
-
+import { PullToRefresh } from "../../components/PullToRefresh";
 // ── SKELETON LOADING ──────────────────────────────────────────────────────────
 function SkeletonGrid() {
     return (
@@ -300,7 +300,8 @@ export function CustomerApp({ activeTab, setActiveTab }) {
 
     // ── HOME TAB ──────────────────────────────────────────────────────────────
     const HomeTab = () => (
-        <div className="col gap16">
+        <PullToRefresh onRefresh={() => fetchProductsPage(1)}>
+            <div className="col gap16">
             {/* Hero / Welcome */}
             <div className="welcome-hero" style={{ background: `linear-gradient(135deg,${P.primary},#6366F1)`, borderRadius: 20, padding: "22px 22px", position: "relative", overflow: "hidden" }}>
                 <div style={{ position: "absolute", right: -20, top: -20, fontSize: 80, opacity: 0.12 }}>🛍</div>
@@ -393,6 +394,7 @@ export function CustomerApp({ activeTab, setActiveTab }) {
                 </>
             )}
         </div>
+        </PullToRefresh>
     );
 
     // ── CART TAB ──────────────────────────────────────────────────────────────

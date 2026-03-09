@@ -713,6 +713,19 @@ button:focus-visible,.p-btn:focus-visible{outline:2px solid ${P.primary};outline
 .modal-sheet{background:${P.card};border:1px solid ${P.border};border-radius:24px 24px 0 0;width:100%;max-width:520px;max-height:90vh;overflow-y:auto;position:relative;animation:sheetUp .35s cubic-bezier(.34,1.56,.64,1)}
 @media(min-width:640px){.modal-sheet{border-radius:20px;max-height:85vh}}
 .modal-handle{width:40px;height:4px;background:${P.border};border-radius:4px;margin:10px auto 0}
+
+/* ── PULL TO REFRESH ─────────────────────────────────────── */
+.ptr-container{position:relative;width:100%;height:100%}
+.ptr-spinner-container{position:absolute;top:0;left:0;right:0;display:flex;align-items:center;justify-content:center;height:60px;transform:translateY(-100%);z-index:10;}
+.ptr-icon{width:32px;height:32px;background:${P.surface};border:1px solid ${P.border};border-radius:50%;display:flex;align-items:center;justify-content:center;color:${P.primary};box-shadow:0 4px 12px rgba(0,0,0,0.5);transition:transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);will-change:transform;}
+.ptr-content{width:100%;height:100%;will-change:transform;transition:transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);}
+.ptr-content.ptr-pulling{transition:none !important;}
+
+/* Pulsing SVG spinner for clean look */
+.ptr-svg-spinner{animation:ptr-spin 1s linear infinite;}
+.ptr-svg-pulse{animation:ptr-pulse-dot 1.2s ease-in-out infinite alternate;}
+@keyframes ptr-spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+@keyframes ptr-pulse-dot{from{transform:scale(0.8);opacity:0.6}to{transform:scale(1.2);opacity:1}}
 `;
 
 

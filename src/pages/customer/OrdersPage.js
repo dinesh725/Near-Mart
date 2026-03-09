@@ -4,7 +4,7 @@ import { P } from "../../theme/theme";
 import api from "../../api/client";
 import socketManager from "../../utils/socketManager";
 import { OrderDetailSheet } from "./OrderDetailSheet";
-
+import { PullToRefresh } from "../../components/PullToRefresh";
 // ── Status Configuration ──────────────────────────────────────────────────────
 const STATUS_CONFIG = {
     PENDING_PAYMENT: { color: "#FFB800", icon: "⏳", label: "Pending Payment" },
@@ -519,6 +519,7 @@ export function OrdersPage({ onTrackOrder, setActiveTab, onReorderToCart, custom
     const groupedOrders = groupOrdersByPeriod(orders);
 
     return (
+        <PullToRefresh onRefresh={() => fetchOrders(1)}>
         <div className="col gap16">
             {/* ── Header ─────────────────────────────────────────────────────── */}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -718,6 +719,7 @@ export function OrdersPage({ onTrackOrder, setActiveTab, onReorderToCart, custom
             document.body
         )}
         </div>
+        </PullToRefresh>
     );
 }
 
