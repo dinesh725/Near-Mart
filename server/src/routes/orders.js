@@ -985,63 +985,75 @@ router.post("/:id/reorder",
             const unavailableReasons = {};
 
             for (const item of order.items) {
-                // 1. Check product exists, is active, and in stock
-                const product = await Product.findById(item.productId)
-                    .populate("sellerId", "name storeName location isOpen deliveryRadius");
-
-                if (!product || product.status !== "active") {
-                    unavailable.push(item.name);
-                    unavailableReasons[item.name] = "Product no longer available";
-                    continue;
-                }
-                if (product.stock < 1) {
-                    unavailable.push(item.name);
-                    unavailableReasons[item.name] = "Out of stock";
-                    continue;
-                }
-
-                const seller = product.sellerId;
-
-                // 2. Check seller exists and is currently open
-                if (!seller) {
-                    unavailable.push(item.name);
-                    unavailableReasons[item.name] = "Seller no longer available";
-                    continue;
-                }
-                if (seller.isOpen === false) {
-                    unavailable.push(item.name);
-                    unavailableReasons[item.name] = "Seller is currently closed";
-                    continue;
-                }
-
-                // 3. Check delivery radius (same logic as product search filter)
-                const sellerLat = seller.location?.coordinates?.[1] || seller.location?.lat;
-                const sellerLng = seller.location?.coordinates?.[0] || seller.location?.lng;
-                const distanceKm = calcDistance(sellerLat, sellerLng);
-
-                if (distanceKm !== null) {
-                    const maxRadius = seller.deliveryRadius || 5;
-                    if (distanceKm > maxRadius) {
-                        unavailable.push(item.name);
-                        unavailableReasons[item.name] = `Seller is ${distanceKm}km away (max ${maxRadius}km)`;
-                        continue;
+                // Helper to validate a specific product document
+                const validateProduct = (prod) => {
+                    if (!prod || prod.status !== "active") return "Product no longer available";
+                    if (prod.stock < 1) return "Out of stock";
+                    
+                    const seller = prod.sellerId;
+                    if (!seller) return "Seller no longer available";
+                    if (seller.isOpen === false) return "Seller is currently closed";
+                    
+                    const sellerLat = seller.location?.coordinates?.[1] || seller.location?.lat;
+                    const sellerLng = seller.location?.coordinates?.[0] || seller.location?.lng;
+                    const distanceKm = calcDistance(sellerLat, sellerLng);
+                    
+                    if (distanceKm !== null) {
+                        const maxRadius = seller.deliveryRadius || 5;
+                        if (distanceKm > maxRadius) return `Seller is ${distanceKm}km away (max ${maxRadius}km)`;
+                    } else if (distanceKm !== null && distanceKm > 15) {
+                        return "Seller too far away";
                     }
-                } else if (distanceKm !== null && distanceKm > 15) {
-                    // Fallback max radius if seller radius not set
+                    return null; // OK
+                };
+
+                let bestProduct = null;
+                let failureReason = null;
+
+                // 1. First try the EXACT original product ID (seller-specific)
+                const originalProduct = await Product.findById(item.productId)
+                    .populate("sellerId", "name storeName location isOpen deliveryRadius");
+                
+                failureReason = validateProduct(originalProduct);
+                
+                if (!failureReason) {
+                    bestProduct = originalProduct;
+                } else {
+                    // 2. Original fails. Try to find an ALTERNATIVE product with the EXACT same name 
+                    // from ANY other seller that passes validation!
+                    const alternatives = await Product.find({ 
+                        name: item.name, 
+                        status: "active", 
+                        stock: { $gt: 0 } 
+                    }).populate("sellerId", "name storeName location isOpen deliveryRadius");
+
+                    for (const alt of alternatives) {
+                        const altError = validateProduct(alt);
+                        if (!altError) {
+                            bestProduct = alt;
+                            failureReason = null;
+                            // Optionally, pick the closest one, but for now first available is fine.
+                            break; 
+                        }
+                    }
+                    // If we STILL don't have a bestProduct, keep the original failureReason
+                }
+
+                if (!bestProduct) {
                     unavailable.push(item.name);
-                    unavailableReasons[item.name] = "Seller too far away";
+                    unavailableReasons[item.name] = failureReason || "Not available";
                     continue;
                 }
 
-                // ✅ All checks passed — add to cart
+                // ✅ Add the matched product (original or alternative) to cart
                 cartItems.push({
-                    productId: product._id.toString(),
-                    name: product.name,
-                    emoji: product.emoji || "📦",
-                    imageUrl: product.imageUrl || item.imageUrl || "",
-                    qty: Math.min(item.qty, product.stock),
-                    price: product.sellingPrice,
-                    stock: product.stock,
+                    productId: bestProduct._id.toString(),
+                    name: bestProduct.name,
+                    emoji: bestProduct.emoji || "📦",
+                    imageUrl: bestProduct.imageUrl || item.imageUrl || "",
+                    qty: Math.min(item.qty, bestProduct.stock),
+                    price: bestProduct.sellingPrice,
+                    stock: bestProduct.stock,
                 });
             }
 

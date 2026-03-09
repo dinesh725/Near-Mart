@@ -339,6 +339,7 @@ export function OrdersPage({ onTrackOrder, setActiveTab, onReorderToCart, custom
     const [cancelTarget, setCancelTarget] = useState(null);
     const [rateTarget, setRateTarget] = useState(null);
     const [refreshKey, setRefreshKey] = useState(0);
+    const [reorderErrors, setReorderErrors] = useState(null);
     const searchTimerRef = useRef(null);
 
     // ── Fetch orders from backend ─────────────────────────────────────────────
@@ -448,9 +449,12 @@ export function OrdersPage({ onTrackOrder, setActiveTab, onReorderToCart, custom
                 if (cartItems.length === 0) {
                     // Show detailed reasons why items are unavailable
                     const reasons = unavailable.map(name =>
-                        `• ${name}: ${unavailableReasons[name] || "Not available"}`
-                    ).join("\n");
-                    alert(`None of the items from this order are currently available for delivery to your location.\n\n${reasons}`);
+                        ({ name, reason: unavailableReasons[name] || "Not available" })
+                    );
+                    setReorderErrors({
+                        message: "None of the items from this order are currently available for delivery to your location.",
+                        reasons
+                    });
                     return;
                 }
                 // Pass items to parent to populate cart and switch tab
@@ -458,10 +462,16 @@ export function OrdersPage({ onTrackOrder, setActiveTab, onReorderToCart, custom
                     onReorderToCart(cartItems, unavailable);
                 }
             } else {
-                alert(res.error || "Could not reorder. Please try again.");
+                setReorderErrors({
+                    message: res.error || "Could not reorder. Please try again.",
+                    reasons: []
+                });
             }
         } catch (err) {
-            alert("Network error. Please check your connection and try again.");
+            setReorderErrors({
+                message: "Network error. Please check your connection and try again.",
+                reasons: []
+            });
         }
     };
 
@@ -635,6 +645,49 @@ export function OrdersPage({ onTrackOrder, setActiveTab, onReorderToCart, custom
             {rateTarget && (
                 <RateModal order={rateTarget} onClose={() => setRateTarget(null)} onSubmit={handleRate} />
             )}
+        {/* ── Reorder Errors Modal ────────────────────────────────────────── */}
+        {reorderErrors && typeof document !== "undefined" && ReactDOM.createPortal(
+            <div style={{
+                position: "fixed", inset: 0, zIndex: 9999, background: "rgba(0,0,0,0.6)",
+                backdropFilter: "blur(6px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16
+            }} onClick={() => setReorderErrors(null)}>
+                <div style={{
+                    background: P.card, border: `1px solid ${P.border}`, borderRadius: 20, 
+                    padding: "24px 20px", maxWidth: 400, width: "100%", textAlign: "center",
+                    animation: "slideUp .3s ease"
+                }} onClick={e => e.stopPropagation()}>
+                    <div style={{ fontSize: 42, marginBottom: 12 }}>🚫</div>
+                    <h3 style={{ fontWeight: 800, fontSize: 18, color: P.text, marginBottom: 8, lineHeight: 1.3 }}>
+                        Reorder Unavailable
+                    </h3>
+                    <p style={{ fontSize: 13, color: P.textMuted, marginBottom: 16 }}>
+                        {reorderErrors.message}
+                    </p>
+                    
+                    {reorderErrors.reasons?.length > 0 && (
+                        <div style={{
+                            background: P.surface, border: `1px solid ${P.border}`, borderRadius: 12,
+                            padding: "12px 14px", textAlign: "left", marginBottom: 20,
+                            maxHeight: 180, overflowY: "auto"
+                        }}>
+                            {reorderErrors.reasons.map((r, i) => (
+                                <div key={i} style={{ marginBottom: i < reorderErrors.reasons.length - 1 ? 8 : 0, display: "flex", gap: 8, alignItems: "flex-start" }}>
+                                    <span style={{ fontSize: 13, flexShrink: 0 }}>•</span>
+                                    <div style={{ fontSize: 13 }}>
+                                        <span style={{ fontWeight: 600, color: P.text }}>{r.name}:</span> <span style={{ color: P.danger }}>{r.reason}</span>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                    
+                    <button className="p-btn p-btn-primary w-100" onClick={() => setReorderErrors(null)}>
+                        Got it
+                    </button>
+                </div>
+            </div>,
+            document.body
+        )}
         </div>
     );
 }
