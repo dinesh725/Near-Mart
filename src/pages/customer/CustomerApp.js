@@ -563,8 +563,8 @@ export function CustomerApp({ activeTab, setActiveTab }) {
         if (selectedTicket) {
             return (
                 <div className="col" style={{ 
-                    // Make it take the full screen height available below the header
-                    position: "fixed", inset: 0, top: 0, bottom: 65, zIndex: 99, 
+                    // Make it take the full screen height available within the app layout container
+                    position: "absolute", inset: 0, top: 0, bottom: 65, zIndex: 99, 
                     background: P.bg, display: "flex", flexDirection: "column" 
                 }}>
                     {/* Header */}

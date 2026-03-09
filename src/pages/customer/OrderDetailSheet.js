@@ -527,9 +527,10 @@ function SupportIssueModal({ order, onClose }) {
     const [success, setSuccess] = useState(false);
 
     const toggleItem = (item) => {
-        setSelectedItems(prev => prev.some(p => p.productId === item.id || p.productId === item._id)
-            ? prev.filter(p => p.productId !== item.id && p.productId !== item._id)
-            : [...prev, { productId: item.id || item._id, name: item.name, qty: item.qty }]
+        const itemId = item.productId || item._id || item.id;
+        setSelectedItems(prev => prev.some(p => p.productId === itemId)
+            ? prev.filter(p => p.productId !== itemId)
+            : [...prev, { productId: itemId, name: item.name, qty: item.qty }]
         );
     };
 
@@ -596,7 +597,8 @@ function SupportIssueModal({ order, onClose }) {
                                 <label style={{ fontSize: 13, fontWeight: 700, color: P.textDim, textTransform: "uppercase" }}>1. Which items have an issue? (Optional)</label>
                                 <div style={{ marginTop: 12, border: `1px solid ${P.border}`, borderRadius: 12, overflow: "hidden" }}>
                                     {order.items?.map((item, i) => {
-                                        const isSelected = selectedItems.some(p => p.productId === (item.id || item._id));
+                                        const itemId = item.productId || item._id || item.id;
+                                        const isSelected = selectedItems.some(p => p.productId === itemId);
                                         return (
                                             <div key={i} onClick={() => toggleItem(item)} style={{
                                                 padding: "12px 14px", display: "flex", alignItems: "center", gap: 12,
