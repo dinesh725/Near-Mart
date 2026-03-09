@@ -433,14 +433,7 @@ export function LoginPage() {
             {/* Brand */}
             <div style={{ textAlign: "center", marginBottom: 36 }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 14, marginBottom: 10 }}>
-                    <div style={{
-                        width: 48, height: 48,
-                        background: "linear-gradient(135deg, #3B6FFF, #8B5CF6)",
-                        borderRadius: 16, display: "flex", alignItems: "center", justifyContent: "center",
-                        fontWeight: 800, fontSize: 24, color: "white",
-                        boxShadow: "0 8px 32px rgba(59,111,255,0.4), 0 0 0 1px rgba(255,255,255,0.1) inset",
-                    }}>N</div>
-                    <span style={{ fontFamily: "'Sora',sans-serif", fontWeight: 800, fontSize: 30, color: "white", letterSpacing: -0.5 }}>NearMart</span>
+                    <img src="/logo-full.png" alt="NearMart" style={{ height: 60, objectFit: "contain", filter: "drop-shadow(0 8px 16px rgba(59,111,255,0.4))", marginBottom: -10 }} />
                 </div>
                 <p style={{ color: "rgba(255,255,255,0.35)", fontSize: 13, letterSpacing: 1.5, textTransform: "uppercase", fontWeight: 500 }}>Multi-Role Commerce Platform</p>
             </div>

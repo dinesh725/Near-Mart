@@ -123,8 +123,9 @@ function AppInner() {
       <Toaster position="bottom-center" toastOptions={{ style: { background: T.card, color: T.text, border: `1px solid ${T.border}`, fontFamily: "'Sora',sans-serif", fontSize: 13 } }} />
 
       <div className="mode-bar">
-        <div className="mode-bar-brand">
-          <span style={{ fontWeight: 800, color: T.gold, fontSize: 15, letterSpacing: ".5px" }}>NearMart</span>
+        <div className="mode-bar-brand" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <img src="/logo-navbar.png" alt="NearMart" style={{ width: 22, height: 22, objectFit: "contain" }} />
+          <span style={{ fontWeight: 800, color: "white", fontSize: 16, letterSpacing: ".5px", fontFamily: "'Sora', sans-serif" }}>NearMart</span>
         </div>
         <div className="mode-bar-btns">
           <button className={`mode-btn ${mode === "platform" ? "active" : ""}`} onClick={() => setMode("platform")}>
