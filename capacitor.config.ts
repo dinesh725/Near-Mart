@@ -22,7 +22,10 @@ const config: CapacitorConfig = {
   },
 
   plugins: {
-    // Use native HTTP layer for all fetch/XHR — completely bypasses WebView CORS
+    // CapacitorHttp ENABLED — routes all fetch/XHR through Android/iOS native HTTP
+    // layer, which bypasses WebView CORS entirely. This is required because the
+    // deployed server may not have Capacitor WebView origins in its CORS whitelist.
+    // Security is maintained via JWT Bearer tokens (not cookies).
     CapacitorHttp: {
       enabled: true,
     },

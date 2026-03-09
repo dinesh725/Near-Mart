@@ -366,7 +366,7 @@ export function LoginPage() {
             if (!res.ok) {
                 setServerErr(res.error || "Google authentication failed");
             }
-        } catch (err) { setServerErr("Network error during Google sign-in"); }
+        } catch (err) { setServerErr(err?.message || "Connection failed during Google sign-in"); }
         setLoading(false);
     }, [loginWithGoogle]);
 
@@ -378,7 +378,7 @@ export function LoginPage() {
         try {
             const res = await login(form.email, form.password);
             if (!res.ok) setServerErr(res.error);
-        } catch (err) { setServerErr("Network error"); }
+        } catch (err) { setServerErr(err?.message || "Connection failed — check your internet"); }
         setLoading(false);
     }, [form, login]);
 
@@ -389,7 +389,7 @@ export function LoginPage() {
         try {
             const res = await signup(form.name, form.email, form.password, form.role);
             if (!res.ok) { setServerErr(res.error); } else { setSuccess(true); }
-        } catch (err) { setServerErr("Network error"); }
+        } catch (err) { setServerErr(err?.message || "Connection failed — check your internet"); }
         setLoading(false);
     }, [form, signup]);
 

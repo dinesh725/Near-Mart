@@ -140,7 +140,8 @@ export function AuthProvider({ children }) {
             }
             return { ok: false, error: res.error || "Invalid email or password" };
         } catch (err) {
-            return { ok: false, error: "Network error" };
+            console.error('[Auth] Login failed:', err);
+            return { ok: false, error: err?.message || "Connection failed — check your internet" };
         }
     }, []);
 
@@ -161,7 +162,8 @@ export function AuthProvider({ children }) {
             }
             return { ok: false, error: res.error || "Registration failed" };
         } catch (err) {
-            return { ok: false, error: "Network error" };
+            console.error('[Auth] Signup failed:', err);
+            return { ok: false, error: err?.message || "Connection failed — check your internet" };
         }
     }, []);
 
@@ -177,7 +179,8 @@ export function AuthProvider({ children }) {
             }
             return { ok: false, error: res.error || "Demo login failed" };
         } catch (err) {
-            return { ok: false, error: "Network error" };
+            console.error('[Auth] Demo login failed:', err);
+            return { ok: false, error: err?.message || "Connection failed — check your internet" };
         }
     }, []);
 
@@ -193,7 +196,8 @@ export function AuthProvider({ children }) {
             }
             return { ok: false, error: res.error || "Google login failed" };
         } catch (err) {
-            return { ok: false, error: "Network error" };
+            console.error('[Auth] Google login failed:', err);
+            return { ok: false, error: err?.message || "Connection failed — check your internet" };
         }
     }, []);
 

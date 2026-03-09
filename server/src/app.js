@@ -76,6 +76,10 @@ if (config.nodeEnv !== "test") {
 app.use("/api/", generalLimiter);
 
 // ── Routes ────────────────────────────────────────────────────────────────────
+app.get("/", (req, res) => {
+    res.status(200).send("NearMart server is awake! 🚀");
+});
+
 app.get("/api/health", (req, res) => {
     res.json({ ok: true, status: "running", timestamp: new Date().toISOString() });
 });

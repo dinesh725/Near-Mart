@@ -11,7 +11,7 @@
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 const API_BASE = process.env.REACT_APP_API_URL || "http://localhost:5000/api";
-const REQUEST_TIMEOUT_MS = 15000;
+const REQUEST_TIMEOUT_MS = 30000; // 30s to handle Render cold starts
 const MAX_RETRIES = 3;
 const RETRY_DELAYS = [1000, 2000, 4000]; // Exponential backoff
 
@@ -38,11 +38,19 @@ const refreshAccessToken = async () => {
 
     refreshPromise = (async () => {
         try {
-            const res = await fetch(`${API_BASE}/auth/refresh`, {
+            const refreshUrl = `${API_BASE}/auth/refresh`;
+            const refreshOpts = {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ refreshToken }),
-            });
+            };
+            // Use Promise.race for timeout (safe for both native and web)
+            const res = await Promise.race([
+                fetch(refreshUrl, refreshOpts),
+                new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error("Refresh request timed out")), REQUEST_TIMEOUT_MS)
+                ),
+            ]);
             if (!res.ok) throw new Error("Refresh failed");
             const data = await res.json();
             setTokens(data.accessToken, data.refreshToken);
@@ -61,8 +69,32 @@ const refreshAccessToken = async () => {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-/** Fetch with timeout using AbortController */
+/** Detect Capacitor native platform (Android/iOS) */
+const isNativePlatform = () => {
+    try {
+        return window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform();
+    } catch { return false; }
+};
+
+/**
+ * Fetch with timeout.
+ * On native Capacitor: uses Promise.race because CapacitorHttp's patched fetch
+ * does not properly support AbortController.signal — passing it causes silent
+ * failures or "Failed to fetch" errors.
+ * On web browser: uses standard AbortController for proper request cancellation.
+ */
 function fetchWithTimeout(url, options, timeoutMs = REQUEST_TIMEOUT_MS) {
+    if (isNativePlatform()) {
+        // Native: CapacitorHttp patches fetch — don't pass AbortController signal
+        return Promise.race([
+            fetch(url, options),
+            new Promise((_, reject) =>
+                setTimeout(() => reject(new DOMException('Request timed out', 'AbortError')), timeoutMs)
+            ),
+        ]);
+    }
+
+    // Web browser: standard AbortController works correctly
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     return fetch(url, { ...options, signal: controller.signal })
@@ -126,11 +158,15 @@ const request = async (method, path, body = null, retry = true) => {
             return { ok: true, status: res.status, ...data };
 
         } catch (err) {
-            lastError = err.name === "AbortError" ? "Request timed out" : "Network error";
+            console.error(`[API] ${method} ${path} attempt ${attempt + 1} failed:`, err.message || err);
+            lastError = err.name === "AbortError"
+                ? "Request timed out — server may be starting up, please try again"
+                : (err.message || "Network error — check your connection");
             if (!isRetryable(err)) break; // Non-retryable error
         }
     }
 
+    console.error(`[API] ${method} ${path} failed after ${MAX_RETRIES + 1} attempts:`, lastError);
     return { ok: false, error: lastError || "Request failed after retries", offline: !navigator.onLine };
 };
 
