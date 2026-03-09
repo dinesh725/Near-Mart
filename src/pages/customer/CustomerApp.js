@@ -133,22 +133,26 @@ export function CustomerApp({ activeTab, setActiveTab }) {
         return matchSearch && matchCat;
     });
 
-    // Simulated loading state on mount
-    useEffect(() => {
-        const t = setTimeout(() => {
-            if (!customerGps) setLoading(false);
-        }, 800);
-        return () => clearTimeout(t);
-    }, [customerGps]);
+    const [gpsStatus, setGpsStatus] = useState("fetching"); // "fetching", "located", or "failed"
 
     // Auto-detect customer GPS on mount (once)
     useEffect(() => {
         if (navigator.geolocation) {
             navigator.geolocation.getCurrentPosition(
-                pos => setCustomerGps({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-                () => { }, // silently fail
+                pos => {
+                    setCustomerGps({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+                    setGpsStatus("located");
+                },
+                (err) => {
+                    console.warn("Geolocation failed or denied:", err);
+                    setGpsStatus("failed");
+                    setLoading(false); // Stop loader if geolocation failed
+                },
                 { enableHighAccuracy: false, timeout: 8000 }
             );
+        } else {
+            setGpsStatus("failed");
+            setLoading(false);
         }
     }, []);
 
@@ -157,10 +161,14 @@ export function CustomerApp({ activeTab, setActiveTab }) {
     const [noLocalSellers, setNoLocalSellers] = useState(false);
 
     useEffect(() => {
-        if (!customerGps) {
+        // If we fail to get GPS, fallback to complete global catalog
+        if (gpsStatus === "failed") {
             setLiveProducts(filtered);
             return;
         }
+        
+        // Wait until we have GPS before doing anything else
+        if (!customerGps) return;
 
         const fetchLocalCatalog = async () => {
             setLoading(true);
@@ -208,7 +216,7 @@ export function CustomerApp({ activeTab, setActiveTab }) {
 
         fetchLocalCatalog();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [customerGps, search, category, products.length]);
+    }, [customerGps, search, category, products.length, gpsStatus]);
 
     // Actually, to prevent infinite loops, we separate the derived state:
     const displayProducts = customerGps && liveProducts.length > 0 ? liveProducts : filtered;
