@@ -17,6 +17,7 @@ const orderItemSchema = new mongoose.Schema({
     productId: { type: mongoose.Schema.Types.ObjectId, ref: "Product", required: true },
     name: { type: String, required: true },
     emoji: { type: String, default: "📦" },
+    imageUrl: { type: String, default: "" },
     qty: { type: Number, required: true, min: 1 },
     price: { type: Number, required: true, min: 0 },
 }, { _id: false });
@@ -105,6 +106,14 @@ const orderSchema = new mongoose.Schema({
         action: { type: String }, // "assigned", "rejected", "timeout", "manual_dispatch"
         timestamp: { type: Date, default: Date.now },
     }],
+    // ── Customer Rating & Review ──────────────────────────────────────
+    customerRating: { type: Number, min: 1, max: 5 },
+    customerReview: { type: String, maxlength: 1000 },
+    ratedAt: { type: Date },
+    // ── Refund Tracking ──────────────────────────────────────────────
+    refundStatus: { type: String, enum: ["none", "requested", "processing", "completed", "failed"], default: "none" },
+    refundAmount: { type: Number, default: 0 },
+    refundedAt: { type: Date },
 }, { timestamps: true });
 
 orderSchema.methods.canTransitionTo = function (newStatus) {

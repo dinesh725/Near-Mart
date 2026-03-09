@@ -7,6 +7,7 @@ import { CheckoutFlow } from "./CheckoutFlow";
 import { WalletPage } from "./WalletPage";
 import { TrackOrderModal } from "../../components/Map/TrackOrderModal";
 import { MultiSellerSheet } from "../../components/MultiSellerSheet";
+import { OrdersPage } from "./OrdersPage";
 
 // ── SKELETON LOADING ──────────────────────────────────────────────────────────
 function SkeletonGrid() {
@@ -164,30 +165,35 @@ export function CustomerApp({ activeTab, setActiveTab }) {
         const fetchLocalCatalog = async () => {
             setLoading(true);
             try {
-                // We'll hit products/search without 'q' to get all nearby items
+                // Hit products/search with user filters
                 const params = new URLSearchParams({
                     lat: customerGps.lat, lng: customerGps.lng, sort: "distance"
                 });
+                if (search) params.append("q", search);
+                if (category !== "All") params.append("category", category);
+                
                 const res = await fetch(`${process.env.REACT_APP_API_URL || "http://localhost:5000/api"}/products/search?${params}`);
                 const data = await res.json();
 
                 if (data.ok && data.grouped && data.grouped.length > 0) {
                     setNoLocalSellers(false);
-                    // Map backend data over local store mock
-                    const merged = filtered.map(fp => {
-                        const bg = data.grouped.find(g => g.name.toLowerCase().trim() === fp.name.toLowerCase().trim());
-                        if (bg && bg.variants[0]) {
-                            const best = bg.variants[0];
-                            return {
-                                ...fp,
-                                sellingPrice: best.price,
-                                stock: best.stock,
-                                distanceKm: best.sellerDistanceKm,
-                                // Calculate dynamic ETA based on distance + static buffer
-                                deliveryMinutes: best.sellerDistanceKm ? Math.round(15 + (best.sellerDistanceKm * 5)) : fp.deliveryMinutes
-                            };
-                        }
-                        return fp;
+                    // Build live products directly from backend data
+                    const merged = data.grouped.map(bg => {
+                        const best = bg.variants[0];
+                        return {
+                            id: best._id,
+                            name: best.name,
+                            category: best.category || "General",
+                            unit: best.unit || "1 unit",
+                            sellingPrice: best.sellingPrice,
+                            mrp: best.mrp || best.sellingPrice,
+                            stock: best.stock,
+                            imageUrl: best.imageUrl || (best.images && best.images[0]) || "",
+                            emoji: best.emoji || "🛍️",
+                            rating: best.seller?.rating || 4.5,
+                            distanceKm: best.distanceKm,
+                            deliveryMinutes: best.estimatedDeliveryMin || (best.distanceKm ? Math.round(15 + (best.distanceKm * 5)) : 30)
+                        };
                     });
                     setLiveProducts(merged);
                 } else if (data.ok && data.grouped && data.grouped.length === 0) {
@@ -258,15 +264,6 @@ export function CustomerApp({ activeTab, setActiveTab }) {
         addToCart(id);
         if (!cart[id]) showToast(`${p?.name || "Item"} added to cart!`, "success", "🛒");
     }, [addToCart, cart, products, showToast]);
-
-    const statusColor = {
-        PENDING: P.warning, CONFIRMED: P.primary, PREPARING: "#8B5CF6", READY_FOR_PICKUP: P.accent,
-        OUT_FOR_DELIVERY: "#F59E0B", DELIVERED: P.success, CANCELLED: P.danger,
-    };
-    const statusIcon = {
-        PENDING: "⏳", CONFIRMED: "✅", PREPARING: "👨‍🍳", READY_FOR_PICKUP: "📦",
-        OUT_FOR_DELIVERY: "🛵", DELIVERED: "🎉", CANCELLED: "❌",
-    };
 
     // ── HOME TAB ──────────────────────────────────────────────────────────────
     const HomeTab = () => (
@@ -415,54 +412,12 @@ export function CustomerApp({ activeTab, setActiveTab }) {
         );
     };
 
-    // ── ORDERS TAB ────────────────────────────────────────────────────────────
+    // ── ORDERS TAB (Production-grade) ─────────────────────────────────────────
     const OrdersTab = () => (
-        <div className="col gap16">
-            <h2 style={{ fontWeight: 800, fontSize: 20 }}>📦 My Orders ({myOrders.length})</h2>
-            {myOrders.length === 0 ? (
-                <div style={{ textAlign: "center", padding: "60px 0", color: P.textMuted }}>
-                    <div style={{ fontSize: 60, marginBottom: 16 }}>📦</div>
-                    <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 8 }}>No orders yet</div>
-                    <div style={{ fontSize: 13, marginBottom: 20 }}>When you place your first order, it'll appear here</div>
-                    <button className="p-btn p-btn-ghost" onClick={fetchOrders} style={{ marginBottom: 12 }}>🔄 Refresh Orders</button>
-                    <button className="p-btn p-btn-primary" onClick={() => setActiveTab(0)}>Start Shopping</button>
-                </div>
-            ) : (
-                <div className="col gap12">
-                    {myOrders.map((o, idx) => (
-                        <div key={`order-${o._id || o.id || idx}`} style={{ background: P.card, border: `1px solid ${P.border}`, borderRadius: 16, padding: "16px 18px", transition: "border-color .2s", cursor: "pointer" }}>
-                            <div className="row-between mb10">
-                                <div>
-                                    <div style={{ fontWeight: 700, fontSize: 14 }}>{o._id ? `#${o._id.slice(-6).toUpperCase()}` : o.id}</div>
-                                    <div style={{ fontSize: 12, color: P.textMuted }}>{new Date(o.createdAt).toLocaleString("en-IN")}</div>
-                                </div>
-                                <div style={{ background: statusColor[o.status] + "22", color: statusColor[o.status], border: `1px solid ${statusColor[o.status]}44`, borderRadius: 20, padding: "4px 12px", fontSize: 12, fontWeight: 700 }}>
-                                    {statusIcon[o.status]} {o.status.replace(/_/g, " ")}
-                                </div>
-                            </div>
-                            {/* Items row */}
-                            <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
-                                {o.items.slice(0, 4).map((i, idx) => (
-                                    <div key={idx} style={{ width: 36, height: 36, borderRadius: 8, background: P.surface, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, border: `1px solid ${P.border}` }}>{i.emoji}</div>
-                                ))}
-                                {o.items.length > 4 && <div style={{ width: 36, height: 36, borderRadius: 8, background: P.surface, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: P.textMuted, border: `1px solid ${P.border}` }}>+{o.items.length - 4}</div>}
-                            </div>
-                            <div className="row-between">
-                                <span style={{ fontWeight: 700 }}>₹{o.total}</span>
-                                <span style={{ fontSize: 12, color: P.textMuted }}>{o.items.length} item{o.items.length > 1 ? "s" : ""}</span>
-                            </div>
-
-                            {/* Track Button if active or recent */}
-                            {o.pickupLocation && o.dropLocation && (
-                                <button className="p-btn w-100" style={{ marginTop: 12, background: P.primary + '11', color: P.primary, border: `1px solid ${P.primary}33` }} onClick={() => setTrackingOrder(o)}>
-                                    🗺 Track Order
-                                </button>
-                            )}
-                        </div>
-                    ))}
-                </div>
-            )}
-        </div>
+        <OrdersPage
+            onTrackOrder={setTrackingOrder}
+            setActiveTab={setActiveTab}
+        />
     );
 
     // ── SUPPORT TAB ───────────────────────────────────────────────────────────

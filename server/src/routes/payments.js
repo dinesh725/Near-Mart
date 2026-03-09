@@ -49,7 +49,8 @@ router.post("/checkout",
                 const itemTotal = product.sellingPrice * item.qty;
                 sellerGroups[sId].items.push({
                     productId: product._id, name: product.name,
-                    emoji: product.emoji, qty: item.qty, price: product.sellingPrice,
+                    emoji: product.emoji, imageUrl: product.imageUrl || "",
+                    qty: item.qty, price: product.sellingPrice,
                 });
                 sellerGroups[sId].subtotal += itemTotal;
                 grandSubtotal += itemTotal;

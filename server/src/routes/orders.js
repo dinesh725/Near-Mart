@@ -78,6 +78,7 @@ router.post("/",
                     productId: product._id,
                     name: product.name,
                     emoji: product.emoji,
+                    imageUrl: product.imageUrl || "",
                     qty: item.qty,
                     price: product.sellingPrice,
                 });
@@ -251,11 +252,11 @@ router.post("/",
     }
 );
 
-// ── Get Orders (role-filtered) ────────────────────────────────────────────────
+// ── Get Orders (role-filtered, searchable, filterable) ────────────────────────
 router.get("/", authenticate, async (req, res, next) => {
     try {
         const page = parseInt(req.query.page) || 1;
-        const limit = parseInt(req.query.limit) || 20;
+        const limit = Math.min(parseInt(req.query.limit) || 20, 50);
         const skip = (page - 1) * limit;
 
         let filter = {};
@@ -271,7 +272,67 @@ router.get("/", authenticate, async (req, res, next) => {
             default: filter.customerId = req.user._id;
         }
 
-        if (req.query.status) filter.status = req.query.status;
+        // Multi-status filter (comma-separated, e.g. ?status=CONFIRMED,PREPARING)
+        if (req.query.status) {
+            const statuses = req.query.status.split(",").map(s => s.trim()).filter(Boolean);
+            if (statuses.length === 1) filter.status = statuses[0];
+            else if (statuses.length > 1) filter.status = { $in: statuses };
+        }
+
+        // Time-period filter
+        if (req.query.period) {
+            const now = new Date();
+            let startDate;
+            switch (req.query.period) {
+                case "today":
+                    startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                    break;
+                case "yesterday": {
+                    const y = new Date(now); y.setDate(y.getDate() - 1);
+                    startDate = new Date(y.getFullYear(), y.getMonth(), y.getDate());
+                    filter.createdAt = {
+                        $gte: startDate,
+                        $lt: new Date(now.getFullYear(), now.getMonth(), now.getDate())
+                    };
+                    break;
+                }
+                case "week":
+                    startDate = new Date(now); startDate.setDate(startDate.getDate() - 7);
+                    break;
+                case "month":
+                    startDate = new Date(now); startDate.setDate(startDate.getDate() - 30);
+                    break;
+            }
+            if (startDate && !filter.createdAt) {
+                filter.createdAt = { $gte: startDate };
+            }
+        }
+
+        // Search (by orderId fragment, product name, or store name)
+        if (req.query.search) {
+            const q = req.query.search.trim();
+            if (q.length > 0) {
+                const searchRegex = new RegExp(q, "i");
+                const searchConditions = [
+                    { storeName: searchRegex },
+                    { customerName: searchRegex },
+                    { "items.name": searchRegex },
+                    { address: searchRegex },
+                ];
+                // Check if search term could be a Mongo ObjectId fragment (hex string)
+                if (/^[a-f0-9]{4,24}$/i.test(q)) {
+                    searchConditions.push({ _id: searchRegex });
+                }
+                // Merge with existing filters using $and
+                if (filter.$or) {
+                    // Already has $or from delivery role filter
+                    filter.$and = [{ $or: filter.$or }, { $or: searchConditions }];
+                    delete filter.$or;
+                } else {
+                    filter.$or = searchConditions;
+                }
+            }
+        }
 
         const [orders, total] = await Promise.all([
             Order.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit),
@@ -298,6 +359,29 @@ router.get("/my-active",
         } catch (err) { next(err); }
     }
 );
+
+// ── Order Stats (counts per status — for filter badges) ───────────────────────
+// MUST be above /:id to prevent Express treating 'stats' as an order ID
+router.get("/stats/counts", authenticate, async (req, res, next) => {
+    try {
+        let matchFilter = {};
+        if (req.user.role === "customer") matchFilter.customerId = req.user._id;
+
+        const pipeline = [
+            { $match: matchFilter },
+            { $group: { _id: "$status", count: { $sum: 1 } } },
+        ];
+        const results = await Order.aggregate(pipeline);
+        const counts = {};
+        let total = 0;
+        for (const r of results) {
+            counts[r._id] = r.count;
+            total += r.count;
+        }
+        counts.ALL = total;
+        res.json({ ok: true, counts });
+    } catch (err) { next(err); }
+});
 
 // ── Get Single Order ──────────────────────────────────────────────────────────
 router.get("/:id", authenticate, async (req, res, next) => {
@@ -328,6 +412,7 @@ router.patch("/:id/confirm",
             if (io) {
                 io.to(`order_${order._id}`).emit("deliveryStatusUpdate", { orderId: order._id, status: "CONFIRMED", storeName: order.storeName });
                 io.to(`seller_${req.user._id}`).emit("orderConfirmed", { orderId: order._id });
+                io.emit("orderStatusChanged", { orderId: order._id, status: "CONFIRMED", customerId: order.customerId });
             }
             await notify("customer", `✅ Order confirmed by ${order.storeName}!`, "update", order.customerId);
             res.json({ ok: true, order });
@@ -358,6 +443,7 @@ router.patch("/:id/prepare",
                     orderId: order._id, status: "PREPARING",
                     prepTime, prepStartedAt: order.prepStartedAt
                 });
+                io.emit("orderStatusChanged", { orderId: order._id, status: "PREPARING", customerId: order.customerId });
             }
             await notify("customer", `👨‍🍳 Preparing your order! Ready in ~${prepTime} min`, "update", order.customerId);
             res.json({ ok: true, order });
@@ -469,6 +555,7 @@ router.patch("/:id/ready",
                 io.emit("orderReadyForPickup", { orderId: order._id });
                 io.emit("orderNearbyAvailable", { orderId: order._id, location: order.pickupLocation });
                 io.to(`order_${order._id}`).emit("deliveryStatusUpdate", { orderId: order._id, status: "READY_FOR_PICKUP" });
+                io.emit("orderStatusChanged", { orderId: order._id, status: "READY_FOR_PICKUP", customerId: order.customerId });
             }
 
             await notify("delivery", `Order ${order._id} ready for pickup`, "order");
@@ -596,7 +683,10 @@ router.patch("/:id/pickup",
             await User.findByIdAndUpdate(req.user._id, { $set: { lastActivityAt: now } });
 
             const io = req.app.get("io");
-            if (io) io.to(`order_${order._id}`).emit("deliveryStatusUpdate", { orderId: order._id, status: "OUT_FOR_DELIVERY", riderName: req.user.name });
+            if (io) {
+                io.to(`order_${order._id}`).emit("deliveryStatusUpdate", { orderId: order._id, status: "OUT_FOR_DELIVERY", riderName: req.user.name });
+                io.emit("orderStatusChanged", { orderId: order._id, status: "OUT_FOR_DELIVERY", customerId: order.customerId });
+            }
 
             await notify("customer", `Your order is out for delivery! 🛵`, "update", order.customerId);
 
@@ -639,7 +729,10 @@ router.patch("/:id/deliver",
             }
 
             const io = req.app.get("io");
-            if (io) io.to(`order_${order._id}`).emit("deliveryStatusUpdate", { orderId: order._id, status: "DELIVERED" });
+            if (io) {
+                io.to(`order_${order._id}`).emit("deliveryStatusUpdate", { orderId: order._id, status: "DELIVERED" });
+                io.emit("orderStatusChanged", { orderId: order._id, status: "DELIVERED", customerId: order.customerId });
+            }
 
             await notify("customer", `Order delivered! Thank you 🎉`, "success", order.customerId);
             await notify("seller", `Order ${order._id} delivered successfully`, "success");
@@ -691,7 +784,10 @@ router.patch("/:id/cancel",
             }
 
             const io = req.app.get("io");
-            if (io) io.to(`order_${order._id}`).emit("deliveryStatusUpdate", { orderId: order._id, status: "CANCELLED" });
+            if (io) {
+                io.to(`order_${order._id}`).emit("deliveryStatusUpdate", { orderId: order._id, status: "CANCELLED" });
+                io.emit("orderStatusChanged", { orderId: order._id, status: "CANCELLED", customerId: order.customerId });
+            }
 
             await notify("customer", `Order cancelled. Reason: ${req.body.reason}`, "alert", order.customerId);
             await notify("seller", `Order ${order._id} was cancelled`, "alert");
@@ -827,5 +923,78 @@ router.get("/batch/:batchId/optimized-route",
         } catch (err) { next(err); }
     }
 );
+
+// ── Rate Order ────────────────────────────────────────────────────────────────
+router.post("/:id/rate",
+    authenticate, authorize("customer"),
+    body("rating").isInt({ min: 1, max: 5 }).withMessage("Rating must be 1-5"),
+    body("review").optional().isString().isLength({ max: 1000 }),
+    validate,
+    async (req, res, next) => {
+        try {
+            const order = await Order.findById(req.params.id);
+            if (!order) throw new NotFound("Order not found");
+            if (order.customerId.toString() !== req.user._id.toString())
+                throw new Forbidden("Cannot rate this order");
+            if (order.status !== "DELIVERED")
+                throw new BadRequest("Can only rate delivered orders");
+            if (order.customerRating)
+                throw new BadRequest("Order already rated");
+
+            order.customerRating = req.body.rating;
+            order.customerReview = req.body.review || "";
+            order.ratedAt = new Date();
+            order.events.push({ status: "DELIVERED", note: `Customer rated ${req.body.rating}★` });
+            await order.save();
+
+            await notify("seller", `⭐ Order #${order._id.toString().slice(-6)} rated ${req.body.rating}/5`, "info");
+            res.json({ ok: true, order });
+        } catch (err) { next(err); }
+    }
+);
+
+// ── Reorder (recreate cart from a previous order) ─────────────────────────────
+router.post("/:id/reorder",
+    authenticate, authorize("customer"),
+    async (req, res, next) => {
+        try {
+            const order = await Order.findById(req.params.id);
+            if (!order) throw new NotFound("Order not found");
+            if (order.customerId.toString() !== req.user._id.toString())
+                throw new Forbidden("Cannot reorder from this order");
+
+            // Validate product availability and stock
+            const cartItems = [];
+            const unavailable = [];
+            for (const item of order.items) {
+                const product = await Product.findById(item.productId);
+                if (!product || product.stock < 1) {
+                    unavailable.push(item.name);
+                    continue;
+                }
+                cartItems.push({
+                    productId: product._id.toString(),
+                    name: product.name,
+                    emoji: product.emoji || "📦",
+                    imageUrl: product.imageUrl || item.imageUrl || "",
+                    qty: Math.min(item.qty, product.stock),
+                    price: product.sellingPrice,
+                    stock: product.stock,
+                });
+            }
+
+            res.json({
+                ok: true,
+                cartItems,
+                unavailable,
+                originalOrderId: order._id,
+                message: unavailable.length > 0
+                    ? `${unavailable.length} item(s) unavailable: ${unavailable.join(", ")}`
+                    : "All items available",
+            });
+        } catch (err) { next(err); }
+    }
+);
+
 
 module.exports = router;

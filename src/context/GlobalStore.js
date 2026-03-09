@@ -145,6 +145,10 @@ export function GlobalStoreProvider({ children }) {
         notifyRole("vendor", `New product listed: ${prod.name}`, "info");
     }, [notifyRole]);
 
+    const removeProduct = useCallback((id) => {
+        setProducts(prev => prev.filter(p => (p.id !== id && p._id !== id)));
+    }, []);
+
     // ── Cart Actions ──────────────────────────────────────────────────────────
     const addToCart = useCallback((productId) => {
         setCart(prev => {
@@ -549,7 +553,7 @@ export function GlobalStoreProvider({ children }) {
         <GlobalStoreContext.Provider value={{
             // SCM
             products, purchaseOrders,
-            updatePrice, updateStock, addProduct, updateProductImage, createPO, updatePOStatus,
+            updatePrice, updateStock, addProduct, removeProduct, updateProductImage, createPO, updatePOStatus,
             // Cart
             cart, cartCount, cartTotal, addToCart, removeFromCart, clearCart,
             // Orders

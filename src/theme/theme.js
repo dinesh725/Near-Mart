@@ -697,6 +697,22 @@ button:focus-visible,.p-btn:focus-visible{outline:2px solid ${P.primary};outline
 
 /* ── SELECTION ────────────────────────────────────────────── */
 ::selection{background:${P.primary}44;color:${P.text}}
+
+/* ── SKELETON LOADING ANIMATION ──────────────────────────── */
+.skeleton{background:linear-gradient(90deg,${P.surface} 25%,${P.card} 37%,${P.surface} 63%);background-size:400% 100%;animation:skeletonPulse 1.5s ease infinite;border-radius:8px}
+@keyframes skeletonPulse{0%{background-position:100% 50%}100%{background-position:0 50%}}
+.skeleton-card{height:160px;border-radius:16px}
+
+/* ── SPINNER ─────────────────────────────────────────────── */
+.spinner{display:inline-block;width:20px;height:20px;border:2px solid ${P.border};border-top-color:${P.primary};border-radius:50%;animation:spinnerRotate .6s linear infinite}
+@keyframes spinnerRotate{to{transform:rotate(360deg)}}
+
+/* ── MODAL OVERLAY / SHEET ───────────────────────────────── */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.7);backdrop-filter:blur(8px);z-index:9500;display:flex;align-items:flex-end;justify-content:center;animation:fadeIn .2s ease}
+@media(min-width:640px){.modal-overlay{align-items:center}}
+.modal-sheet{background:${P.card};border:1px solid ${P.border};border-radius:24px 24px 0 0;width:100%;max-width:520px;max-height:90vh;overflow-y:auto;position:relative;animation:sheetUp .35s cubic-bezier(.34,1.56,.64,1)}
+@media(min-width:640px){.modal-sheet{border-radius:20px;max-height:85vh}}
+.modal-handle{width:40px;height:4px;background:${P.border};border-radius:4px;margin:10px auto 0}
 `;
 
 

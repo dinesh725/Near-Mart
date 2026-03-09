@@ -22,7 +22,7 @@ const STATUS_LABEL = { PENDING: "Pending", CONFIRMED: "Confirmed", PREPARING: "P
 
 export function SellerDashboard({ activeTab }) {
     const { user } = useAuth();
-    const { orders, products, acceptOrder, prepareOrder, markReadyForPickup, updatePrice, addProduct, updateStock, updateProductImage, showToast } = useStore();
+    const { orders, products, acceptOrder, prepareOrder, markReadyForPickup, updatePrice, addProduct, removeProduct, updateStock, updateProductImage, showToast } = useStore();
     const [toast, setToast] = useState(null);
     const [modal, setModal] = useState(null);
     const [form, setForm] = useState({});
@@ -31,10 +31,20 @@ export function SellerDashboard({ activeTab }) {
     const [storeLocation, setStoreLocation] = useState(user?.location || null);
 
     const storeOrders = orders.filter(o => o.storeId === user?.storeId);
+    
+    // SECURITY FIX: Filter the global catalog so seller ONLY sees their own items!
+    // (We include items with matching sellerId or storeId to accommodate local mock data structures)
+    const myProducts = products.filter(p => 
+        p.sellerId === user?._id || 
+        p.sellerId === user?.id || 
+        p.storeId === user?.storeId || 
+        (user?.role === "seller" && !p.sellerId) // Fallback for legacy mock data items
+    );
+    
     const pendingOrds = storeOrders.filter(o => o.status === "PENDING");
     const activeOrds = storeOrders.filter(o => !["DELIVERED", "CANCELLED"].includes(o.status));
     const totalRevenue = storeOrders.filter(o => o.status === "DELIVERED").reduce((s, o) => s + o.total, 0);
-    const lowStock = products.filter(p => p.stock < 10);
+    const lowStock = myProducts.filter(p => p.stock < 10);
 
     const [prepTimeInput, setPrepTimeInput] = useState({});
     const API = process.env.REACT_APP_API_URL || "http://localhost:5000/api";
@@ -118,11 +128,29 @@ export function SellerDashboard({ activeTab }) {
             if (form.stock !== undefined) updateStock(modal.product.id, +form.stock - modal.product.stock);
             setToast({ msg: `${modal.product.name} updated!`, icon: "💰" });
         } else {
-            addProduct({ ...form, supplierId: "S002", supplier: "Metro Wholesale Hub" });
+            addProduct({ ...form, supplierId: "S002", supplier: "Metro Wholesale Hub", sellerId: user?._id || user?.id, storeId: user?.storeId });
             setToast({ msg: `${form.name} added to catalog!`, icon: "🎉" });
         }
         setModal(null); setForm({});
     }, [modal, form, updatePrice, updateStock, addProduct]);
+
+    const handleDeleteProduct = useCallback(async (productId, productName) => {
+        if (!window.confirm(`Are you sure you want to delete ${productName}? This will permanently remove it from your inventory and the customer app.`)) return;
+        try {
+            if (getToken()) {
+                const res = await fetch(`${API}/products/${productId}`, {
+                    method: "DELETE",
+                    headers: { "Authorization": `Bearer ${getToken()}` }
+                });
+                const data = await res.json();
+                if (!data.ok) throw new Error(data.error || "Failed to delete from DB");
+            }
+            removeProduct(productId);
+            setToast({ msg: `${productName} deleted permanently 🗑️`, icon: "🗑️" });
+        } catch (e) {
+            setToast({ msg: e.message || "Could not delete product", icon: "❌" });
+        }
+    }, [API, removeProduct]);
 
     const handleDetectGPS = useCallback(() => {
         if (!navigator.geolocation) {
@@ -524,11 +552,11 @@ export function SellerDashboard({ activeTab }) {
     const InventoryTab = () => (
         <div className="col gap14">
             <div className="row-between">
-                <h2 style={{ fontWeight: 800, fontSize: 20 }}>📦 Inventory ({products.length} SKUs)</h2>
+                <h2 style={{ fontWeight: 800, fontSize: 20 }}>📦 Inventory ({myProducts.length} SKUs)</h2>
                 <button className="p-btn p-btn-ghost p-btn-sm" onClick={() => { setModal({ mode: "add" }); setForm({ emoji: "🛒", name: "", sellingPrice: "", mrp: "", costPrice: "", stock: "", category: "Dairy", description: "", weight: "", tags: "" }); }}>+ Add</button>
             </div>
             <div className="col gap10">
-                {products.map(p => (
+                {myProducts.map(p => (
                     <div key={p.id} className="p-card" style={{ padding: "14px 16px" }}>
                         <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
                             {/* Product image or emoji */}
@@ -549,8 +577,12 @@ export function SellerDashboard({ activeTab }) {
                             </div>
                             <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end" }}>
                                 <button className="p-btn p-btn-ghost p-btn-sm" onClick={() => { setModal({ mode: "edit", product: p }); setForm({ sellingPrice: p.sellingPrice, costPrice: p.costPrice, stock: p.stock }); }}>✏ Edit</button>
-                                <button style={{ fontSize: 11, background: "none", border: `1px solid ${P.border}`, borderRadius: 6, color: P.textMuted, cursor: "pointer", padding: "3px 8px", fontFamily: "'Sora',sans-serif" }}
-                                    onClick={() => setImgPickerTarget({ id: p.id, name: p.name, currentUrl: p.imageUrl })}>📷 Image</button>
+                                <div style={{ display: "flex", gap: 6 }}>
+                                    <button style={{ fontSize: 11, background: "none", border: `1px solid ${P.border}`, borderRadius: 6, color: P.textMuted, cursor: "pointer", padding: "3px 8px", fontFamily: "'Sora',sans-serif" }}
+                                        onClick={() => setImgPickerTarget({ id: p.id, name: p.name, currentUrl: p.imageUrl })}>📷 Image</button>
+                                    <button style={{ fontSize: 11, background: "none", border: `1px solid ${P.danger}44`, borderRadius: 6, color: P.danger, cursor: "pointer", padding: "3px 8px", fontFamily: "'Sora',sans-serif" }}
+                                        onClick={() => handleDeleteProduct(p._id || p.id, p.name)}>🗑️ Delete</button>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -560,7 +592,7 @@ export function SellerDashboard({ activeTab }) {
     );
 
     const FinanceTab = () => {
-        const totalCost = storeOrders.filter(o => o.status === "DELIVERED").reduce((s, o) => s + o.items.reduce((si, i) => { const p = products.find(x => x.id === i.productId); return si + (p?.costPrice || 0) * i.qty; }, 0), 0);
+        const totalCost = storeOrders.filter(o => o.status === "DELIVERED").reduce((s, o) => s + o.items.reduce((si, i) => { const p = myProducts.find(x => x.id === i.productId); return si + (p?.costPrice || 0) * i.qty; }, 0), 0);
         const grossProfit = totalRevenue - totalCost;
         return (
             <div className="col gap16">
@@ -580,7 +612,7 @@ export function SellerDashboard({ activeTab }) {
                 </div>
                 <div className="p-card">
                     <h3 style={{ fontWeight: 700, fontSize: 15, marginBottom: 14 }}>Product Profitability</h3>
-                    {products.map(p => (
+                    {myProducts.map(p => (
                         <div key={p.id} className="row-between" style={{ padding: "8px 0", borderBottom: `1px solid ${P.border}44` }}>
                             <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
                                 <span>{p.emoji}</span>

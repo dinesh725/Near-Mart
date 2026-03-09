@@ -80,17 +80,31 @@ router.get("/search", async (req, res, next) => {
             };
         });
 
-        // Sort
-        let sorted = enriched;
+        // Filter out closed sellers and out-of-range products before sorting
+        const validProducts = enriched.filter(p => {
+            // If we have seller GPS + Customer GPS, strictly enforce radius
+            if (p.distanceKm !== null && p.seller?.deliveryRadius) {
+                if (p.distanceKm > p.seller.deliveryRadius) return false;
+            } else if (p.distanceKm !== null && p.distanceKm > 15) {
+                // Fallback max delivery radius of 15km if seller radius not explicitly set
+                return false;
+            }
+            // Enforce open/close status
+            if (p.seller && p.seller.isOpen === false) return false;
+            return true;
+        });
+
+        // Sort valid products
+        let sorted = validProducts;
         switch (sort) {
-            case "price": sorted = enriched.sort((a, b) => a.sellingPrice - b.sellingPrice); break;
-            case "rating": sorted = enriched.sort((a, b) => (b.seller?.rating || 0) - (a.seller?.rating || 0)); break;
-            case "delivery_time": sorted = enriched.sort((a, b) => a.estimatedDeliveryMin - b.estimatedDeliveryMin); break;
-            case "distance": sorted = enriched.sort((a, b) => (a.distanceKm ?? 999) - (b.distanceKm ?? 999)); break;
+            case "price": sorted = validProducts.sort((a, b) => a.sellingPrice - b.sellingPrice); break;
+            case "rating": sorted = validProducts.sort((a, b) => (b.seller?.rating || 0) - (a.seller?.rating || 0)); break;
+            case "delivery_time": sorted = validProducts.sort((a, b) => a.estimatedDeliveryMin - b.estimatedDeliveryMin); break;
+            case "distance": sorted = validProducts.sort((a, b) => (a.distanceKm ?? 999) - (b.distanceKm ?? 999)); break;
             case "smart":
             default:
                 // Default to Smart Logistics Ranking (Highest Score First)
-                sorted = enriched.sort((a, b) => (b.compositeScore ?? 0) - (a.compositeScore ?? 0));
+                sorted = validProducts.sort((a, b) => (b.compositeScore ?? 0) - (a.compositeScore ?? 0));
         }
 
         // Group by product name (multi-seller grouping)
@@ -184,12 +198,18 @@ router.patch("/:id",
     authenticate, authorize("seller", "admin"),
     async (req, res, next) => {
         try {
+            const productToUpdate = await Product.findById(req.params.id);
+            if (!productToUpdate) throw new NotFound("Product not found");
+
+            if (req.user.role !== "admin" && productToUpdate.sellerId?.toString() !== req.user._id.toString()) {
+                throw new NotFound("Product not found or unauthorized to edit");
+            }
+
             const product = await Product.findByIdAndUpdate(
                 req.params.id,
                 { $set: req.body },
                 { new: true, runValidators: true }
             );
-            if (!product) throw new NotFound("Product not found");
             res.json({ ok: true, product });
         } catch (err) { next(err); }
     }
@@ -204,6 +224,11 @@ router.patch("/:id/stock",
         try {
             const product = await Product.findById(req.params.id);
             if (!product) throw new NotFound("Product not found");
+
+            if (req.user.role !== "admin" && product.sellerId?.toString() !== req.user._id.toString()) {
+                throw new NotFound("Product not found or unauthorized to edit stock");
+            }
+
             product.stock = Math.max(0, product.stock + req.body.delta);
             await product.save();
             res.json({ ok: true, product });
@@ -211,14 +236,20 @@ router.patch("/:id/stock",
     }
 );
 
-// ── Delete Product (admin only) ───────────────────────────────────────────────
+// ── Delete Product (admin / seller) ──────────────────────────────────────────
 router.delete("/:id",
-    authenticate, authorize("admin"),
+    authenticate, authorize("admin", "seller"),
     async (req, res, next) => {
         try {
-            const product = await Product.findByIdAndDelete(req.params.id);
+            const product = await Product.findById(req.params.id);
             if (!product) throw new NotFound("Product not found");
-            res.json({ ok: true, message: "Deleted" });
+
+            if (req.user.role !== "admin" && product.sellerId.toString() !== req.user._id.toString()) {
+                throw new NotFound("Product not found or unauthorized to delete");
+            }
+
+            await product.deleteOne(); // Use deleteOne to trigger any hooks if they exist, or just remove
+            res.json({ ok: true, message: "Deleted successfully" });
         } catch (err) { next(err); }
     }
 );
