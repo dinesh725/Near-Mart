@@ -444,7 +444,7 @@ export function OrdersPage({ onTrackOrder, setActiveTab, onReorderToCart, custom
             }
             const res = await api.post(`/orders/${order._id}/reorder`, body);
             if (res.ok) {
-                const { cartItems = [], unavailable = [], unavailableReasons = {}, message = "" } = res;
+                const { cartItems = [], unavailable = [], unavailableReasons = {} } = res;
                 if (cartItems.length === 0) {
                     // Show detailed reasons why items are unavailable
                     const reasons = unavailable.map(name =>
