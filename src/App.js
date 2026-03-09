@@ -27,7 +27,19 @@ const SCMModule = lazy(() =>
 // Inner app — needs auth context to be mounted
 function AppInner() {
   const { isAuthenticated, user, role, logout, refreshUser, loading } = useAuth();
-  const [mode, setMode] = useState("platform");
+  const [mode, setMode] = useState(() => {
+    try {
+      const saved = sessionStorage.getItem("nearmart_mode");
+      if (saved === "platform" || saved === "scm") return saved;
+    } catch { /* ignore */ }
+    return "platform";
+  });
+
+  // Persist mode across refresh
+  React.useEffect(() => {
+    try { sessionStorage.setItem("nearmart_mode", mode); }
+    catch { /* ignore */ }
+  }, [mode]);
 
   // ── Mobile-native hooks ─────────────────────────────────────────────────
   useBackButton((msg, opts) => toast(msg, opts));

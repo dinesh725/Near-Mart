@@ -158,62 +158,94 @@ export function CustomerApp({ activeTab, setActiveTab }) {
         retryLocation();
     }, [retryLocation]);
 
-    // Fetch dynamic distances/etas when GPS changes
+    // ── Infinite-scroll product fetching ─────────────────────────────────────
     const [liveProducts, setLiveProducts] = useState([]);
     const [noLocalSellers, setNoLocalSellers] = useState(false);
+    const [productPage, setProductPage] = useState(1);
+    const [hasMoreProducts, setHasMoreProducts] = useState(false);
+    const [loadingMore, setLoadingMore] = useState(false);
+    const sentinelRef = useRef(null);
 
-    useEffect(() => {
-        // Wait until we have GPS before doing anything else
-        if (gpsStatus !== "located" || !customerGps) return;
+    // Helper: transform grouped backend data to display items
+    const mapGroupedToProducts = useCallback((grouped) => {
+        return grouped.map(bg => {
+            const best = bg.variants[0];
+            return {
+                id: best._id,
+                name: best.name,
+                category: best.category || "General",
+                unit: best.unit || "1 unit",
+                sellingPrice: best.sellingPrice,
+                mrp: best.mrp || best.sellingPrice,
+                stock: best.stock,
+                imageUrl: best.imageUrl || (best.images && best.images[0]) || "",
+                emoji: best.emoji || "🛍️",
+                rating: best.seller?.rating || 4.5,
+                distanceKm: best.distanceKm,
+                deliveryMinutes: best.estimatedDeliveryMin || (best.distanceKm ? Math.round(15 + (best.distanceKm * 5)) : 30)
+            };
+        });
+    }, []);
 
-        const fetchLocalCatalog = async () => {
-            setLoading(true);
-            try {
-                // Hit products/search with user filters
-                const params = new URLSearchParams({
-                    lat: customerGps.lat, lng: customerGps.lng, sort: "distance"
-                });
-                if (search) params.append("q", search);
-                if (category !== "All") params.append("category", category);
-                
-                const res = await fetch(`${process.env.REACT_APP_API_URL || "http://localhost:5000/api"}/products/search?${params}`);
-                const data = await res.json();
+    // Fetch products page (page 1 = fresh load, page > 1 = append for infinite scroll)
+    const fetchProductsPage = useCallback(async (page = 1) => {
+        if (!customerGps) return;
+        if (page === 1) setLoading(true);
+        else setLoadingMore(true);
 
-                if (data.ok && data.grouped && data.grouped.length > 0) {
-                    setNoLocalSellers(false);
-                    // Build live products directly from backend data
-                    const merged = data.grouped.map(bg => {
-                        const best = bg.variants[0];
-                        return {
-                            id: best._id,
-                            name: best.name,
-                            category: best.category || "General",
-                            unit: best.unit || "1 unit",
-                            sellingPrice: best.sellingPrice,
-                            mrp: best.mrp || best.sellingPrice,
-                            stock: best.stock,
-                            imageUrl: best.imageUrl || (best.images && best.images[0]) || "",
-                            emoji: best.emoji || "🛍️",
-                            rating: best.seller?.rating || 4.5,
-                            distanceKm: best.distanceKm,
-                            deliveryMinutes: best.estimatedDeliveryMin || (best.distanceKm ? Math.round(15 + (best.distanceKm * 5)) : 30)
-                        };
-                    });
-                    setLiveProducts(merged);
-                } else if (data.ok && data.grouped && data.grouped.length === 0) {
-                    setNoLocalSellers(true);
+        try {
+            const params = new URLSearchParams({
+                lat: customerGps.lat, lng: customerGps.lng, sort: "distance",
+                page: String(page), limit: "20"
+            });
+            if (search) params.append("q", search);
+            if (category !== "All") params.append("category", category);
+
+            const res = await fetch(`${process.env.REACT_APP_API_URL || "http://localhost:5000/api"}/products/search?${params}`);
+            const data = await res.json();
+
+            if (data.ok && data.grouped) {
+                const newItems = mapGroupedToProducts(data.grouped);
+                if (page === 1) {
+                    setLiveProducts(newItems);
+                    setNoLocalSellers(newItems.length === 0 && data.totalGroups === 0);
+                } else {
+                    setLiveProducts(prev => [...prev, ...newItems]);
                 }
-            } catch (err) {
-                // Keep it empty on error
-                setLiveProducts([]);
-            } finally {
-                setLoading(false);
+                setHasMoreProducts(data.hasMore === true);
+                setProductPage(page);
             }
-        };
+        } catch (err) {
+            if (page === 1) setLiveProducts([]);
+        } finally {
+            setLoading(false);
+            setLoadingMore(false);
+        }
+    }, [customerGps, search, category, mapGroupedToProducts]);
 
-        fetchLocalCatalog();
+    // Initial load & when filters change → reset to page 1
+    useEffect(() => {
+        if (gpsStatus !== "located" || !customerGps) return;
+        setProductPage(1);
+        setHasMoreProducts(false);
+        fetchProductsPage(1);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [customerGps, search, category, gpsStatus]);
+
+    // IntersectionObserver for infinite scroll – triggers when sentinel div is visible
+    useEffect(() => {
+        if (!sentinelRef.current) return;
+        const observer = new IntersectionObserver(
+            ([entry]) => {
+                if (entry.isIntersecting && hasMoreProducts && !loadingMore && !loading) {
+                    fetchProductsPage(productPage + 1);
+                }
+            },
+            { rootMargin: "200px" }
+        );
+        observer.observe(sentinelRef.current);
+        return () => observer.disconnect();
+    }, [hasMoreProducts, loadingMore, loading, productPage, fetchProductsPage]);
 
     // Derived state for the UI
     const displayProducts = liveProducts;
@@ -228,11 +260,9 @@ export function CustomerApp({ activeTab, setActiveTab }) {
         setShowCheckout(false);
         const singleOrder = backendOrders?.[0] || null;
         if (singleOrder) setBackendOrder(singleOrder);
-        // Pull all orders from backend to ensure consistency
         fetchOrders();
         setActiveTab(2); // Navigate to Orders
 
-        // Auto-open tracking only if it's a single order. If multi-seller, let them open manually.
         if (backendOrders?.length === 1) {
             setTrackingOrder(singleOrder);
         } else {
@@ -242,7 +272,6 @@ export function CustomerApp({ activeTab, setActiveTab }) {
 
 
     const handleProductTap = useCallback(async (product) => {
-        // Check if multiple sellers offer this product
         if (customerGps) {
             try {
                 const params = new URLSearchParams({
@@ -260,14 +289,11 @@ export function CustomerApp({ activeTab, setActiveTab }) {
                 }
             } catch (e) { /* fallback to detail sheet */ }
         }
-        // Single seller or no GPS - open detail sheet
         setDetailProduct(product);
     }, [customerGps]);
 
     const handleAddToCart = useCallback((id) => {
-        const p = products.find(x => x.id === id); // `products` is global store, we can use it to get product details quickly
-        // If not found in store, we could look in liveProducts, but `addToCart` from context uses `products`.
-        // We will pass the necessary product ID to addToCart which will add it if it exists in the full catalog which it should.
+        const p = products.find(x => x.id === id);
         addToCart(id);
         if (!cart[id]) showToast(`${p?.name || "Item"} added to cart!`, "success", "🛒");
     }, [addToCart, cart, products, showToast]);
@@ -285,8 +311,6 @@ export function CustomerApp({ activeTab, setActiveTab }) {
                 </div>
 
             </div>
-
-
 
             {/* Search */}
             <div style={{ position: "relative" }}>
@@ -326,7 +350,6 @@ export function CustomerApp({ activeTab, setActiveTab }) {
                     <div style={{ fontSize: 60, marginBottom: 16 }}>🌍</div>
                     <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 8 }}>No Sellers Nearby</div>
                     <div style={{ fontSize: 13, maxWidth: 260, margin: "0 auto" }}>We are not currently serving your exact geographic area. Sellers are required to be within 5km.</div>
-                    {/* Intentionally removed the "View Global Catalog" fallback button entirely, per user's strict instructions to avoid bypassing the system */}
                 </div>
             ) : displayProducts.length === 0 ? (
                 <div style={{ textAlign: "center", padding: "60px 0", color: P.textMuted }}>
@@ -336,18 +359,38 @@ export function CustomerApp({ activeTab, setActiveTab }) {
                     <button className="p-btn p-btn-ghost" style={{ marginTop: 16 }} onClick={() => { setSearch(""); setCategory("All"); }}>Clear Filters</button>
                 </div>
             ) : (
-                <div className="product-grid-v2">
-                    {displayProducts.map(p => (
-                        <ProductCard
-                            key={p.id}
-                            p={p}
-                            qty={cart[p.id] || 0}
-                            onAdd={handleAddToCart}
-                            onRemove={removeFromCart}
-                            onOpen={handleProductTap}
-                        />
-                    ))}
-                </div>
+                <>
+                    <div className="product-grid-v2">
+                        {displayProducts.map(p => (
+                            <ProductCard
+                                key={p.id}
+                                p={p}
+                                qty={cart[p.id] || 0}
+                                onAdd={handleAddToCart}
+                                onRemove={removeFromCart}
+                                onOpen={handleProductTap}
+                            />
+                        ))}
+                    </div>
+                    {/* Infinite scroll sentinel */}
+                    {hasMoreProducts && (
+                        <div ref={sentinelRef} style={{ textAlign: "center", padding: "20px 0" }}>
+                            <div style={{
+                                display: "inline-flex", alignItems: "center", gap: 8,
+                                fontSize: 13, color: P.textMuted, padding: "8px 16px",
+                                background: P.surface, borderRadius: 20, border: `1px solid ${P.border}`
+                            }}>
+                                <span className="pulse-dot" style={{ width: 8, height: 8, borderRadius: "50%", background: P.primary, animation: "pulse 1.2s infinite" }} />
+                                Loading more products...
+                            </div>
+                        </div>
+                    )}
+                    {!hasMoreProducts && displayProducts.length > 0 && (
+                        <div style={{ textAlign: "center", padding: "16px 0", fontSize: 12, color: P.textDim }}>
+                            ✅ You've seen all {displayProducts.length} products available near you
+                        </div>
+                    )}
+                </>
             )}
         </div>
     );

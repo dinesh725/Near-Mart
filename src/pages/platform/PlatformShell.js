@@ -199,9 +199,27 @@ export function PlatformShell() {
     const { user, role, logout } = useAuth();
     const { cartCount } = useStore();
     const isMobile = useIsMobile();
-    const [activeTab, setActiveTab] = useState(0);
 
     const meta = ROLE_META[role] || ROLE_META.customer;
+
+    // ── Persist active tab across page refresh ────────────────────────────────
+    const storageKey = `nearmart_activeTab_${role || "default"}`;
+    const [activeTab, setActiveTab] = useState(() => {
+        try {
+            const saved = sessionStorage.getItem(storageKey);
+            if (saved !== null) {
+                const idx = parseInt(saved, 10);
+                // Ensure the saved tab index is valid for the current role's tab count
+                if (!isNaN(idx) && idx >= 0 && idx < meta.tabs.length) return idx;
+            }
+        } catch { /* sessionStorage not available */ }
+        return 0;
+    });
+
+    useEffect(() => {
+        try { sessionStorage.setItem(storageKey, String(activeTab)); }
+        catch { /* ignore */ }
+    }, [activeTab, storageKey]);
     const profileTabIndex = meta.tabs.length - 1; // Profile is always last tab
     const isProfileTab = activeTab === profileTabIndex;
     const Component = meta.component;

@@ -330,6 +330,7 @@ function RateModal({ order, onClose, onSubmit }) {
 export function OrdersPage({ onTrackOrder, setActiveTab, onReorderToCart, customerGps }) {
     const [orders, setOrders] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [loadingMore, setLoadingMore] = useState(false);
     const [activeFilter, setActiveFilter] = useState("ALL");
     const [searchQuery, setSearchQuery] = useState("");
     const [searchInput, setSearchInput] = useState("");
@@ -341,10 +342,12 @@ export function OrdersPage({ onTrackOrder, setActiveTab, onReorderToCart, custom
     const [refreshKey, setRefreshKey] = useState(0);
     const [reorderErrors, setReorderErrors] = useState(null);
     const searchTimerRef = useRef(null);
+    const orderSentinelRef = useRef(null);
 
-    // ── Fetch orders from backend ─────────────────────────────────────────────
+    // ── Fetch orders from backend (infinite scroll) ───────────────────────────
     const fetchOrders = useCallback(async (page = 1) => {
-        setLoading(true);
+        if (page === 1) setLoading(true);
+        else setLoadingMore(true);
         try {
             const params = new URLSearchParams({ page, limit: 20 });
             const tab = FILTER_TABS.find(t => t.key === activeFilter);
@@ -353,13 +356,18 @@ export function OrdersPage({ onTrackOrder, setActiveTab, onReorderToCart, custom
 
             const res = await api.get(`/orders?${params}`);
             if (res.ok) {
-                setOrders(res.orders || []);
+                if (page === 1) {
+                    setOrders(res.orders || []);
+                } else {
+                    setOrders(prev => [...prev, ...(res.orders || [])]);
+                }
                 setPagination(res.pagination || { page: 1, pages: 1, total: 0 });
             }
         } catch (err) {
             console.error("Failed to fetch orders:", err);
         } finally {
             setLoading(false);
+            setLoadingMore(false);
         }
     }, [activeFilter, searchQuery]);
 
@@ -399,6 +407,21 @@ export function OrdersPage({ onTrackOrder, setActiveTab, onReorderToCart, custom
             socket.off("newOrder", handleNewOrder);
         };
     }, []);
+
+    // ── IntersectionObserver for orders infinite scroll ────────────────────
+    useEffect(() => {
+        if (!orderSentinelRef.current) return;
+        const observer = new IntersectionObserver(
+            ([entry]) => {
+                if (entry.isIntersecting && pagination.page < pagination.pages && !loadingMore && !loading) {
+                    fetchOrders(pagination.page + 1);
+                }
+            },
+            { rootMargin: "200px" }
+        );
+        observer.observe(orderSentinelRef.current);
+        return () => observer.disconnect();
+    }, [pagination, loadingMore, loading, fetchOrders]);
 
     // ── Auto-refresh when user returns to the app (mobile/tab switch) ──────
     useEffect(() => {
@@ -608,16 +631,22 @@ export function OrdersPage({ onTrackOrder, setActiveTab, onReorderToCart, custom
                         </div>
                     ))}
 
-                    {/* Pagination */}
-                    {pagination.pages > 1 && (
-                        <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 12, padding: "8px 0" }}>
-                            <button className="p-btn p-btn-ghost p-btn-sm" disabled={pagination.page <= 1}
-                                onClick={() => fetchOrders(pagination.page - 1)}>← Prev</button>
-                            <span style={{ fontSize: 12, color: P.textMuted }}>
-                                Page {pagination.page} of {pagination.pages} · {pagination.total} orders
-                            </span>
-                            <button className="p-btn p-btn-ghost p-btn-sm" disabled={pagination.page >= pagination.pages}
-                                onClick={() => fetchOrders(pagination.page + 1)}>Next →</button>
+                    {/* Infinite scroll sentinel for orders */}
+                    {pagination.page < pagination.pages && (
+                        <div ref={orderSentinelRef} style={{ textAlign: "center", padding: "20px 0" }}>
+                            <div style={{
+                                display: "inline-flex", alignItems: "center", gap: 8,
+                                fontSize: 13, color: P.textMuted, padding: "8px 16px",
+                                background: P.surface, borderRadius: 20, border: `1px solid ${P.border}`
+                            }}>
+                                <span style={{ width: 8, height: 8, borderRadius: "50%", background: P.primary, animation: "pulse 1.2s infinite" }} />
+                                Loading older orders...
+                            </div>
+                        </div>
+                    )}
+                    {pagination.page >= pagination.pages && orders.length > 0 && (
+                        <div style={{ textAlign: "center", padding: "16px 0", fontSize: 12, color: P.textDim }}>
+                            ✅ You've seen all {pagination.total} orders
                         </div>
                     )}
                 </div>

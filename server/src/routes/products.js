@@ -13,7 +13,9 @@ const router = express.Router();
 // GET /api/products/search?q=Milk&lat=19.05&lng=72.83&sort=distance&category=Dairy
 router.get("/search", async (req, res, next) => {
     try {
-        const { q, lat, lng, sort = "distance", category } = req.query;
+        const { q, lat, lng, sort = "distance", category, page = "1", limit = "20" } = req.query;
+        const pageNum = Math.max(1, parseInt(page, 10) || 1);
+        const limitNum = Math.min(50, Math.max(1, parseInt(limit, 10) || 20));
 
         // Build filter
         const filter = { status: "active", stock: { $gt: 0 } };
@@ -117,11 +119,21 @@ router.get("/search", async (req, res, next) => {
             grouped[key].variants.push(p);
         });
 
+        // Paginate the grouped results
+        const allGroups = Object.values(grouped);
+        const totalGroups = allGroups.length;
+        const startIdx = (pageNum - 1) * limitNum;
+        const paginatedGroups = allGroups.slice(startIdx, startIdx + limitNum);
+        const hasMore = startIdx + limitNum < totalGroups;
+
         res.json({
             ok: true,
-            products: sorted,           // flat list for grid
-            grouped: Object.values(grouped), // grouped by name for comparison
+            products: sorted,           // flat list (for backward compat)
+            grouped: paginatedGroups,   // paginated grouped by name
             total: sorted.length,
+            totalGroups,
+            page: pageNum,
+            hasMore,
         });
     } catch (err) { next(err); }
 });
