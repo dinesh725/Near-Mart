@@ -1,9 +1,5 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { motion, useScroll, useTransform, useSpring } from 'framer-motion';
-import { Canvas, useFrame } from "@react-three/fiber";
-import { Float, Environment, useTexture, RoundedBox, Text } from "@react-three/drei";
-import { EffectComposer, Bloom } from '@react-three/postprocessing';
-import * as THREE from "three";
 
 // P theme colors matching your global theme
 const P = {
