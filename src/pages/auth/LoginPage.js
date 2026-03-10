@@ -138,8 +138,12 @@ function WebGoogleAuthScript({ onSuccess, onError }) {
 
     const renderButton = (id) => {
         if (window.google) {
-            const btnWidth = Math.min(384, window.innerWidth > 440 ? 384 : window.innerWidth - 32).toString();
-            window.google.accounts.id.renderButton(document.getElementById(id), {
+            // Get parent width safely to avoid breaking out of the card
+            const container = document.getElementById(id);
+            const parentWidth = container?.parentElement?.clientWidth || window.innerWidth;
+            // Provide a slightly smaller max-width (280) so it doesn't clip on small screens, and leave room for padding
+            const btnWidth = Math.min(280, parentWidth > 0 ? parentWidth - 32 : window.innerWidth - 32).toString();
+            window.google.accounts.id.renderButton(container, {
                 theme: "filled_black", size: "large", type: "standard", shape: "pill", width: btnWidth
             });
         }
@@ -151,7 +155,8 @@ function WebGoogleAuthScript({ onSuccess, onError }) {
         return () => clearInterval(t);
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-    return <div id={instanceId.current} style={{ marginTop: 16 }}></div>;
+    // Use a wrapper but we no longer force overflow:hidden, letting it naturally fit
+    return <div style={{ width: "100%", display: "flex", justifyContent: "center", marginTop: 16 }}><div id={instanceId.current}></div></div>;
 }
 
 // ── Unified Google Auth Component ────────────────────────────────────────────
@@ -267,11 +272,11 @@ function StrengthBar({ password }) {
     );
 }
 
-export function LoginPage() {
+export function LoginPage({ initialTab = "signin", initialRole = "customer" }) {
     const { login, signup, loginWithGoogle } = useAuth();
-    const [tab, setTab] = useState("signin");
+    const [tab, setTab] = useState(initialTab);
     const [loginMethod, setLoginMethod] = useState("email"); // "email" | "phone"
-    const [form, setForm] = useState({ name: "", email: "", password: "", role: "customer" });
+    const [form, setForm] = useState({ name: "", email: "", password: "", role: initialRole });
     const [errs, setErrs] = useState({});
     const [serverErr, setServerErr] = useState("");
     const [loading, setLoading] = useState(false);
@@ -286,6 +291,12 @@ export function LoginPage() {
     const [otpLoading, setOtpLoading] = useState(false);
     const [otpError, setOtpError] = useState("");
     const [otpCooldown, setOtpCooldown] = useState(0);
+
+    // Sync state when props change
+    useEffect(() => {
+        setTab(initialTab);
+        setForm(f => ({ ...f, role: initialRole }));
+    }, [initialTab, initialRole]);
 
     const set = (k, v) => { setForm(f => ({ ...f, [k]: v })); setErrs(e => ({ ...e, [k]: "" })); setServerErr(""); };
 
@@ -427,10 +438,11 @@ export function LoginPage() {
     return (
         <div style={{
             minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center",
-            justifyContent: "center", background: "#060A12", padding: "24px 16px",
-            boxSizing: "border-box", width: "100%", maxWidth: "100vw", overflowX: "hidden", overflowY: "auto", overscrollBehaviorX: "none",
+            justifyContent: "flex-start", background: "#060A12", padding: "24px 16px",
+            boxSizing: "border-box", width: "100%", maxWidth: "100vw", overflowX: "hidden", overflowY: "auto",
             backgroundImage: "radial-gradient(ellipse at 30% 20%, rgba(59,111,255,0.08) 0%, transparent 50%), radial-gradient(ellipse at 70% 80%, rgba(139,92,246,0.06) 0%, transparent 50%), radial-gradient(circle at 50% 50%, rgba(99,102,241,0.03) 0%, transparent 70%)",
         }}>
+            <div style={{ width: "100%", maxWidth: 440, display: "flex", flexDirection: "column", alignItems: "center", margin: "auto 0", boxSizing: "border-box" }}>
             {/* Brand */}
             <div style={{ textAlign: "center", marginBottom: 36 }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 14, marginBottom: 10 }}>
@@ -474,9 +486,10 @@ export function LoginPage() {
                                 {loading ? <><span className="spinner" style={{ marginRight: 8 }} />Signing in...</> : "Sign In"}
                             </button>
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>
-                                <button onClick={() => setServerErr("✉ Password reset link sent to your email!")} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.3)", cursor: "pointer", fontFamily: "'Sora',sans-serif", fontSize: 12 }}>Forgot Password?</button>
+                                <button type="button" onClick={() => setServerErr("✉ Password reset link sent to your email!")} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.3)", cursor: "pointer", fontFamily: "'Sora',sans-serif", fontSize: 12 }}>Forgot Password?</button>
                                 <button type="button" onClick={() => setTab("signup")} style={{ background: "none", border: "none", color: P.primary, cursor: "pointer", fontWeight: 700, fontFamily: "'Sora',sans-serif", fontSize: 12 }}>Create Account →</button>
                             </div>
+                            <GoogleAuthScript onSuccess={(res) => handleGoogleLogin(res, "customer")} onError={() => setServerErr("Google Login failed")} />
                         </form>
                     )}
 
@@ -612,6 +625,7 @@ export function LoginPage() {
                                     <button type="submit" disabled={loading} style={{ width: "100%", padding: "14px 0", background: loading ? "rgba(59,111,255,0.5)" : "linear-gradient(135deg,#3B6FFF,#6366F1)", border: "none", borderRadius: 14, color: "white", fontFamily: "'Sora',sans-serif", fontWeight: 700, fontSize: 15, cursor: loading ? "wait" : "pointer", boxShadow: "0 8px 28px rgba(59,111,255,0.35)", transition: "all .25s", letterSpacing: 0.3 }}>
                                         {loading ? <><span className="spinner" style={{ marginRight: 8 }} />Creating account...</> : "Create Account"}
                                     </button>
+                                    <GoogleAuthScript onSuccess={(res) => handleGoogleLogin(res, form.role)} onError={() => setServerErr("Google Login failed")} />
                                 </form>
 
                                 <div style={{ marginTop: 16, textAlign: "center" }}>
@@ -623,14 +637,10 @@ export function LoginPage() {
                 )
             }
 
-            {/* Google Global Sign-In handler for Sign In email tab & Sign Up tab */}
-            {
-                tab !== "demo" && loginMethod === "email" && <GoogleAuthScript onSuccess={(res) => handleGoogleLogin(res, form.role)} onError={() => setServerErr("Google Login failed")} />
-            }
-
             <p style={{ color: "rgba(255,255,255,0.12)", fontSize: 11, marginTop: 32, textAlign: "center", letterSpacing: 0.5 }}>
                 NearMart v2.0 — Production Demo
             </p>
+            </div>
 
             {/* ── REMOVED: Standalone Phone tab replaced by Email/Phone toggle inside Sign In & Sign Up ── */}
             {

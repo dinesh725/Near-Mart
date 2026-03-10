@@ -14,7 +14,15 @@ import { usePushNotifications } from "./hooks/usePushNotifications";
 import useNativePermissions from "./hooks/useNativePermissions";
 import { VerificationGate } from "./pages/auth/VerificationGate";
 import { EmailVerifyPage } from "./pages/auth/EmailVerifyPage";
+import { WebLandingPage } from "./pages/public/WebLandingPage";
 import { App as CapApp } from '@capacitor/app';
+
+// ── Capacitor detection ─────────────────────────────────────────────────────
+const isCapacitorNative = () => {
+  try {
+    return window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform();
+  } catch { return false; }
+};
 
 // ── Code-split heavy route chunks ───────────────────────────────────────────
 const PlatformShell = lazy(() =>
@@ -63,18 +71,44 @@ function AppInner() {
 
   usePushNotifications();
 
+  const [hash, setHash] = useState(window.location.hash || "");
+  const search = window.location.search || "";
+  const pathname = window.location.pathname || "";
+
+  React.useEffect(() => {
+    const onHashChange = () => setHash(window.location.hash);
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
+
   // Show loading screen during session restore
   if (loading) return <LoadingFallback />;
 
-  // ── EMAIL VERIFICATION ROUTE (accessible without auth) ──
-  const hash = window.location.hash || "";
-  const search = window.location.search || "";
-  const pathname = window.location.pathname || "";
   if (hash.includes("verify-email") || search.includes("verify-email") || pathname.includes("verify-email")) {
     return <EmailVerifyPage />;
   }
 
-  if (!isAuthenticated) return <LoginPage />;
+  if (!isAuthenticated) {
+    const isNative = isCapacitorNative();
+    const wantsLogin = hash.includes("login") || search.includes("login");
+    const wantsSignup = hash.includes("signup");
+
+    // Extract target role from hash (e.g. #signup-seller -> seller)
+    let prefillRole = "customer";
+    if (wantsSignup && hash.includes("-")) {
+        prefillRole = hash.split("-")[1];
+    }
+    
+    const wantsAuth = wantsLogin || wantsSignup;
+
+    // ── BROWSER WEB: Serve the jaw-dropping marketing Landing Page if they haven't meant to login
+    if (!isNative && !wantsAuth) {
+      return <WebLandingPage />;
+    }
+    
+    // ── NATIVE APP: Later we will add <MobileOnboarding /> here. For now it goes to Login.
+    return <LoginPage initialTab={wantsSignup ? "signup" : "signin"} initialRole={prefillRole} />;
+  }
 
   // Determine if this role can access SCM
   const canAccessSCM = SCM_ALLOWED_ROLES.includes(role);
