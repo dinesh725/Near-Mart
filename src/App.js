@@ -15,6 +15,7 @@ import useNativePermissions from "./hooks/useNativePermissions";
 import { VerificationGate } from "./pages/auth/VerificationGate";
 import { EmailVerifyPage } from "./pages/auth/EmailVerifyPage";
 import { WebLandingPage } from "./pages/public/WebLandingPage";
+import { MobileIntro } from "./pages/public/MobileIntro";
 import { App as CapApp } from '@capacitor/app';
 
 // ── Capacitor detection ─────────────────────────────────────────────────────
@@ -106,7 +107,19 @@ function AppInner() {
       return <WebLandingPage />;
     }
     
-    // ── NATIVE APP: Later we will add <MobileOnboarding /> here. For now it goes to Login.
+    // ── NATIVE APP: Cinematic Mobile Onboarding
+    const hasSeenIntro = localStorage.getItem("nearmart_intro_complete");
+    if (isNative && !wantsAuth && !hasSeenIntro) {
+      return (
+        <MobileIntro 
+          onComplete={(selectedRole) => {
+              localStorage.setItem("nearmart_intro_complete", "true");
+              window.location.hash = "signup-" + selectedRole;
+          }} 
+        />
+      );
+    }
+
     return <LoginPage initialTab={wantsSignup ? "signup" : "signin"} initialRole={prefillRole} />;
   }
 
