@@ -1,0 +1,21 @@
+﻿722bc0e - Tue Mar 10 02:47:25 2026 +0530 - feat: updated logo assets with chosen pin/bag design for web and mobile
+b53709d - Tue Mar 10 01:20:05 2026 +0530 - fix: chat UI input overlap on desktop screens and item selection overlap in support modal
+5a4ef3d - Tue Mar 10 01:03:32 2026 +0530 - fix: remove unused orders and myOrders variables in CustomerApp.js causing vercel build failure
+7b057d8 - Tue Mar 10 00:55:57 2026 +0530 - feat: rebuild customer support flow - add item-level dispute matrix to orders and replace static tab with real-time unified inbox
+31eedac - Tue Mar 10 00:29:30 2026 +0530 - ui: upgrade global loading fallback to premium animated jaw-dropping splash screen
+d94a92a - Tue Mar 10 00:11:56 2026 +0530 - security: patch 5 critical payment vulnerabilities - webhook auth, wallet rollback, idempotency, stale order sweep, SW cache bypass
+ec11a6c - Mon Mar 9 23:46:12 2026 +0530 - fix(ux): apply strict CSS mobile root locking to prevent horizontal overscroll shaking
+6b32662 - Mon Mar 9 23:14:13 2026 +0530 - feat(ux): implement custom mobile Pull-to-Refresh with advanced animations
+ecc801d - Mon Mar 9 22:52:27 2026 +0530 - feat: tab persistence + infinite scroll for Home and Orders pages
+205e607 - Mon Mar 9 21:54:29 2026 +0530 - fix(lint): remove unused 'filtered' variable blocking CI build
+c0e5d23 - Mon Mar 9 21:47:27 2026 +0530 - feat(ui): strictly require location before showing products to avoid bypassing local seller rules
+f79030f - Mon Mar 9 21:35:29 2026 +0530 - fix(ui): prevent products flashing before location filter runs by tracking gps status properly
+b0682b9 - Mon Mar 9 21:19:07 2026 +0530 - fix(reorder): allow platform/dark store products with no seller to bypass seller validation checks
+d5685c2 - Mon Mar 9 20:42:20 2026 +0530 - fix(reorder): replace browser alert with styled modal & improve product matching
+6cd864b - Mon Mar 9 20:17:03 2026 +0530 - fix(lint): remove unused variable 'message' in OrdersPage
+397c759 - Mon Mar 9 19:52:15 2026 +0530 - fix: Reorder now enforces seller open/closed status and delivery radius checks
+148a444 - Mon Mar 9 19:26:21 2026 +0530 - fix: Portalled Add Money Modal to render above MobileNav
+621c1c0 - Mon Mar 9 19:14:26 2026 +0530 - fix: Portalled modals to overlay MobileNav and fixed close button overlap
+4f81aae - Mon Mar 9 18:59:46 2026 +0530 - feat: Fix Reorder button visibility on mobile and implement proper cart-based reorder flow
+c7d7f5a - Mon Mar 9 18:47:22 2026 +0530 - fix: Resolve missing dependency in useCallback for SellerDashboard
+faca454 - Mon Mar 9 18:22:02 2026 +0530 - fixing the filter issue of products

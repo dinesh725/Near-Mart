@@ -416,7 +416,7 @@ export function LoginPage() {
 
     // Card wrapper style
     const cardStyle = {
-        width: "100%", maxWidth: 440,
+        width: "100%", maxWidth: 440, boxSizing: "border-box",
         background: "rgba(15,20,35,0.85)",
         backdropFilter: "blur(20px) saturate(1.5)",
         border: "1px solid rgba(255,255,255,0.08)",
@@ -428,6 +428,7 @@ export function LoginPage() {
         <div style={{
             minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center",
             justifyContent: "center", background: "#060A12", padding: "24px 16px",
+            boxSizing: "border-box", width: "100%", maxWidth: "100vw", overflowX: "hidden", overflowY: "auto", overscrollBehaviorX: "none",
             backgroundImage: "radial-gradient(ellipse at 30% 20%, rgba(59,111,255,0.08) 0%, transparent 50%), radial-gradient(ellipse at 70% 80%, rgba(139,92,246,0.06) 0%, transparent 50%), radial-gradient(circle at 50% 50%, rgba(99,102,241,0.03) 0%, transparent 70%)",
         }}>
             {/* Brand */}

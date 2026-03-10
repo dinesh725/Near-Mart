@@ -96,9 +96,10 @@ export function VerificationGate() {
     return (
         <div style={{
             display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-            minHeight: "100vh", padding: 20, background: T.surface, color: T.text
+            minHeight: "100vh", padding: 20, background: T.surface, color: T.text,
+            boxSizing: "border-box", width: "100%", maxWidth: "100vw", overflowX: "hidden", overflowY: "auto", overscrollBehaviorX: "none"
         }}>
-            <div style={{ background: T.card, padding: 30, borderRadius: 16, width: "100%", maxWidth: 400, border: `1px solid ${T.border}` }}>
+            <div style={{ background: T.card, padding: 30, borderRadius: 16, width: "100%", maxWidth: 400, boxSizing: "border-box", border: `1px solid ${T.border}` }}>
                 <h2 style={{ margin: "0 0 10px 0", color: T.gold }}>Verify Account</h2>
                 <p style={{ fontSize: 14, color: T.textMuted, marginBottom: 20 }}>
                     Please verify your account to start placing orders.

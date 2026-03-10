@@ -45,10 +45,11 @@ export function EmailVerifyPage() {
     return (
         <div style={{
             display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-            minHeight: "100vh", padding: 20, background: T.surface, color: T.text
+            minHeight: "100vh", padding: 20, background: T.surface, color: T.text,
+            boxSizing: "border-box", width: "100%", maxWidth: "100vw", overflowX: "hidden", overflowY: "auto", overscrollBehaviorX: "none"
         }}>
             <div style={{
-                background: T.card, padding: 40, borderRadius: 16, width: "100%", maxWidth: 420,
+                background: T.card, padding: 40, borderRadius: 16, width: "100%", maxWidth: 420, boxSizing: "border-box",
                 border: `1px solid ${T.border}`, textAlign: "center"
             }}>
                 {status === "verifying" && (
