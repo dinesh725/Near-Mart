@@ -14,8 +14,6 @@ const transactionSchema = new mongoose.Schema({
     status: { type: String, enum: ["pending", "completed", "failed", "refunded"], default: "pending" },
     idempotencyKey: { type: String, unique: true, sparse: true },
 }, { timestamps: true });
-
-transactionSchema.index({ idempotencyKey: 1 });
 transactionSchema.index({ createdAt: -1 });
 
 module.exports = mongoose.model("Transaction", transactionSchema);

@@ -5,6 +5,7 @@ const app = require("./app");
 const config = require("./config");
 const logger = require("./utils/logger");
 const { startCronJobs } = require("./utils/cronJobs");
+const { startDispatchEngine } = require("./utils/dispatchEngine");
 const DeliveryTrackingLog = require("./models/DeliveryTrackingLog");
 const Order = require("./models/Order");
 
@@ -86,6 +87,8 @@ const start = async () => {
 
             // In-memory spoofing tracker (riderId -> { lat, lng, time })
             const riderTeleportTracker = new Map();
+            app.set("liveRiders", riderTeleportTracker);
+            
             // Cache drop locations for fast dynamic ETA calculations
             const orderMetaCache = new Map();
 
@@ -126,8 +129,15 @@ const start = async () => {
                         }
                     }
 
-                    // Valid location - cache for next jump calc
-                    riderTeleportTracker.set(riderId, { lat: newLoc.lat, lng: newLoc.lng, time: now });
+                    // Valid location - cache for next jump calc and entire dispatch engine
+                    riderTeleportTracker.set(riderId, { 
+                        lat: newLoc.lat, 
+                        lng: newLoc.lng, 
+                        time: now,
+                        batteryLevel: data.batteryLevel || 1.0,
+                        status: data.status || "online",
+                        activeCount: data.activeCount || 0
+                    });
 
                     riderLocations.set(data.orderId, { ...data.location, lastUpdate: now });
 
@@ -239,6 +249,7 @@ const start = async () => {
 
             // Start background logistics intelligence
             startCronJobs(app);
+            startDispatchEngine(app);
             logger.info(`   Environment: ${config.nodeEnv}`);
             logger.info(`   CORS origin: ${config.corsOrigin}`);
             logger.info(`   Health check: http://${HOST}:${config.port}/api/health`);

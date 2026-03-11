@@ -66,15 +66,21 @@ router.post("/",
         try {
             const { items, address, paymentMethod, dropLocation, sellerId } = req.body;
 
-            // Validate products & stock
-            const orderItems = [];
+            // 1. Resolve requested products & Group by Seller (Multi-Seller Cart Support)
+            const sellerGroups = {};
             for (const item of items) {
                 const product = await Product.findById(item.productId);
                 if (!product) throw new BadRequest(`Product ${item.productId} not found`);
-                if (product.stock < item.qty)
+                if (product.stock < item.qty) {
                     throw new BadRequest(`Insufficient stock for ${product.name} (available: ${product.stock})`);
+                }
 
-                orderItems.push({
+                const sId = product.sellerId ? product.sellerId.toString() : "DEFAULT_SELLER";
+                if (!sellerGroups[sId]) {
+                    sellerGroups[sId] = { sellerId: product.sellerId, items: [], subtotal: 0 };
+                }
+
+                sellerGroups[sId].items.push({
                     productId: product._id,
                     name: product.name,
                     emoji: product.emoji,
@@ -82,34 +88,11 @@ router.post("/",
                     qty: item.qty,
                     price: product.sellingPrice,
                 });
+                sellerGroups[sId].subtotal += (product.sellingPrice * item.qty);
             }
-
-            const subtotal = orderItems.reduce((sum, i) => sum + i.price * i.qty, 0);
-
-            // ── Determine pickup location (seller's real GPS from DB) ────────
-            // Initialize as null — we require sellerID to get a real location.
-            // Orders without a valid seller location will have pickupLocation=null
-            // and the frontend TrackOrderModal will show "Map routing in progress..."
-            let pickupLoc = null;
-            let seller = null;
-
-            if (sellerId) {
-                seller = await User.findById(sellerId).select("location storeName storeId name serviceRadius");
-                if (seller?.location?.lat) {
-                    pickupLoc = {
-                        type: "Point",
-                        coordinates: seller.location.coordinates || [seller.location.lng, seller.location.lat],
-                        lat: seller.location.lat,
-                        lng: seller.location.lng,
-                        address: seller.location.address || `${seller.storeName || seller.name} Store`,
-                    };
-                }
-            }
-
 
             // ── Drop location from request ───────────────────────────────────
             let dropLoc = { lat: null, lng: null, address, type: "Point", coordinates: [] };
-
             if (dropLocation?.lat && dropLocation?.lng) {
                 dropLoc = {
                     type: "Point",
@@ -118,136 +101,137 @@ router.post("/",
                     lng: dropLocation.lng,
                     address: dropLocation.address || address,
                 };
-                // Reverse geocode if address not provided
                 if (!dropLocation.address) {
                     dropLoc.address = await reverseGeocode(dropLoc.lat, dropLoc.lng);
                 }
+            } else {
+                throw new BadRequest("Customer delivery coordinates (dropLocation) are required.");
             }
 
-            // ── Generate route & calculate ETA ──────────────────────────────
-            let routeData = null;
-            let deliveryFee = 30;
-            let estimatedArrivalTime = null;
+            const sellerCount = Object.keys(sellerGroups).length;
+            const deliveryFeePerSeller = 30;
+            const platformFeePerSeller = parseFloat((5 / sellerCount).toFixed(2));
+            
+            // Calculate global discount to split
+            let grandSubtotal = Object.values(sellerGroups).reduce((sum, g) => sum + g.subtotal, 0);
+            const discountTotal = grandSubtotal > 200 ? Math.round(grandSubtotal * 0.02) : 0;
+            const discountPerSeller = Math.floor(discountTotal / sellerCount);
 
-            if (dropLoc.lat && pickupLoc.lat) {
-                // ── Seller Geofencing & Service Zone Validation ──────────────
-                if (seller) {
-                    const dropPoint = { type: "Point", coordinates: dropLoc.coordinates };
-                    let withinZone = false;
+            let createdOrders = [];
+            let paymentGroupId = `GRP-${crypto.randomBytes(4).toString("hex").toUpperCase()}`;
 
-                    // 1. Check Polygon bounds if defined
-                    if (seller.location?.servicePolygon?.coordinates?.length > 0) {
-                        // Simple turf.js style bounding check would be ideal, but we can do a quick MongoDB intersect check
-                        // However we don't have the mongoose Document here to run a pipeline easily, so we use distance fallback 
-                        // as poly intersection in raw JS without libs is complex. 
-                        // A simple bounding box check can be done, but we'll prioritize the radius.
-                    }
+            // ── Fulfill Per Seller ─────────
+            for (const sId of Object.keys(sellerGroups)) {
+                const group = sellerGroups[sId];
+                
+                let store = await User.findById(group.sellerId).select("location storeName storeId name serviceRadius phone storePhone isOpen");
+                if (!store) throw new BadRequest(`Seller not found for some products in your cart.`);
+                if (!store.isOpen) throw new BadRequest(`${store.storeName || store.name} is currently closed.`);
 
-                    // 2. Fallback to Radius (meters)
-                    const radius = seller.serviceRadius || 5000;
-                    const directDistance = haversineDistance(dropLoc, pickupLoc); // returns meters normally
-
-                    // Note: haversineDistance returns km in this codebase's typical implementation (let's assume km)
-                    // Wait, let's assume calcDistance logic which is KM.
-                    const distKm = haversineDistance(dropLoc, pickupLoc) || 0;
-                    if (distKm * 1000 > radius) {
-                        throw new BadRequest(`Your delivery address is outside the seller's service zone (${radius / 1000}km restriction).`);
-                    }
+                let pickupLoc = null;
+                if (store.location && store.location.lat) {
+                    pickupLoc = {
+                        type: "Point",
+                        coordinates: store.location.coordinates || [store.location.lng, store.location.lat],
+                        lat: store.location.lat,
+                        lng: store.location.lng,
+                        address: store.location.address || `${store.storeName || store.name} Store`,
+                    };
                 }
 
-                routeData = await generateRoute(pickupLoc, dropLoc);
+                if (!pickupLoc) throw new BadRequest(`Store ${store.storeName || store.name} lacks valid GPS coordinates.`);
 
-                // Safety logic: Prevent Cross-City Orders
-                if (routeData.distance > 20) {
-                    throw new BadRequest(`Delivery distance (${routeData.distance} km) exceeds the maximum allowed 20 km radius.`);
+                // Verify Service Radius
+                const distKm = haversineDistance(dropLoc, pickupLoc) || 0;
+                const distMeters = distKm * 1000;
+                const radiusMeters = store.serviceRadius || 5000;
+
+                if (distMeters > radiusMeters || distKm > 20) {
+                    throw new BadRequest(`Your delivery address is outside the service zone of ${store.storeName || store.name} (${radiusMeters / 1000}km restriction).`);
                 }
 
-                deliveryFee = calcDeliveryFee(routeData.distance);
-                const etaMs = Date.now() + routeData.duration * 1000;
-                estimatedArrivalTime = new Date(etaMs);
-            }
+                let routeData = await generateRoute(pickupLoc, dropLoc);
+                const etaMs = Date.now() + (routeData.duration || 15) * 1000;
+                let estimatedArrivalTime = new Date(etaMs);
 
-            const platformFee = 5;
-            const discount = subtotal > 200 ? Math.round(subtotal * 0.02) : 0;
-            const total = subtotal + deliveryFee + platformFee - discount;
+                const groupTotal = group.subtotal + deliveryFeePerSeller + platformFeePerSeller - discountPerSeller;
 
-            // ── Batching Intelligence ───────────────────────────────────────
-            let batchId = null;
-            if (pickupLoc.lat && dropLoc.lat) {
-                // Find pending/confirmed orders within 500m pickup and 1km dropoff
+                // Batching setup for this specific store
+                let batchId = null;
                 const nearbyOrder = await Order.findOne({
                     status: { $in: [ORDER_STATUS.PENDING, ORDER_STATUS.CONFIRMED] },
+                    sellerId: store._id,
                     pickupLocation: {
                         $near: {
                             $geometry: { type: "Point", coordinates: pickupLoc.coordinates },
-                            $maxDistance: 500 // 500 meters
+                            $maxDistance: 500
                         }
                     }
                 }).sort({ createdAt: 1 });
 
                 if (nearbyOrder) {
-                    // Check if dropoff is also within 1km of the new order
                     const dropDistance = haversineDistance(
                         { lat: dropLoc.lat, lng: dropLoc.lng },
                         { lat: nearbyOrder.dropLocation.coordinates[1], lng: nearbyOrder.dropLocation.coordinates[0] }
                     );
-
-                    if (dropDistance <= 1000) { // 1km dropoff bound
+                    if (dropDistance <= 1500) {
                         batchId = nearbyOrder.batchId || `BATCH-${Date.now().toString(36).toUpperCase()}-${Math.floor(Math.random() * 1000)}`;
-                        // Give the nearby order a batchId if it didn't have one
                         if (!nearbyOrder.batchId) {
                             nearbyOrder.batchId = batchId;
                             await nearbyOrder.save();
                         }
                     }
                 }
+
+                const order = await Order.create({
+                    customerId: req.user._id,
+                    customerName: req.user.name,
+                    customerPhone: req.user.phone || "",
+                    sellerId: store._id,
+                    storeId: store.storeId || String(store._id),
+                    sellerPhone: store.storePhone || store.phone || "",
+                    items: group.items,
+                    subtotal: group.subtotal,
+                    deliveryFee: deliveryFeePerSeller,
+                    platformFee: platformFeePerSeller,
+                    discountShare: discountPerSeller,
+                    total: groupTotal,
+                    address: dropLoc.address || address,
+                    paymentMethod: paymentMethod || "Online",
+                    paymentGroupId, // Link sub-orders together
+                    pickupLocation: pickupLoc,
+                    dropLocation: dropLoc,
+                    routePolyline: routeData?.polyline || null,
+                    batchId,
+                    estimatedArrivalTime,
+                    distanceRemaining: routeData?.distance || null,
+                });
+
+                createdOrders.push(order);
+                
+                // Deduct stock for this group
+                for (const item of group.items) {
+                    await Product.findByIdAndUpdate(item.productId, { $inc: { stock: -item.qty } });
+                    const updated = await Product.findById(item.productId);
+                    if (updated && updated.stock < 10) {
+                        await notify("seller", `⚠ Low stock alert: ${updated.name} (${updated.stock} left)`, "alert", store._id);
+                    }
+                }
+
+                await notify("seller", `New order ${order._id} — ₹${groupTotal}`, "order", store._id);
             }
 
-            const order = await Order.create({
-                customerId: req.user._id,
-                customerName: req.user.name,
-                items: orderItems,
-                subtotal,
-                deliveryFee,
-                platformFee,
-                discount,
-                total,
-                address: dropLoc.address || address,
-                paymentMethod: paymentMethod || "Online",
-                pickupLocation: pickupLoc,
-                dropLocation: dropLoc,
-                routePolyline: routeData?.polyline || null,
-                batchId,
-                estimatedArrivalTime,
-                distanceRemaining: routeData?.distance || null,
-            });
-
-            // Deduct stock
-            for (const item of orderItems) {
-                await Product.findByIdAndUpdate(item.productId, { $inc: { stock: -item.qty } });
-            }
-
-            // Notify via socket if io is available
             const io = req.app.get("io");
             if (io) {
-                io.emit("newOrder", { orderId: order._id, customerName: req.user.name, total });
-            }
-
-            // Notifications
-            await notify("seller", `New order ${order._id} — ₹${total}`, "order");
-            await notify("customer", `Order placed! ₹${total} via ${paymentMethod || "Online"}`, "update", req.user._id);
-            await notify("admin", `New order from ${req.user.name}`, "info");
-
-            // Low stock alerts
-            for (const item of orderItems) {
-                const updated = await Product.findById(item.productId);
-                if (updated && updated.stock < 10) {
-                    await notify("seller", `⚠ Low stock: ${updated.name} (${updated.stock} left)`, "alert");
-                    await notify("vendor", `Demand spike for ${updated.name} — restock needed`, "demand");
+                for (const o of createdOrders) {
+                    io.emit("newOrder", { orderId: o._id, customerName: req.user.name, total: o.total });
                 }
             }
 
-            res.status(201).json({ ok: true, order });
+            await notify("customer", `Order placed successfully via ${paymentMethod || "Wallet"}`, "update", req.user._id);
+            await notify("admin", `New Multi-Seller Checkout from ${req.user.name}`, "info");
+
+            res.status(201).json({ ok: true, orders: createdOrders });
         } catch (err) { next(err); }
     }
 );

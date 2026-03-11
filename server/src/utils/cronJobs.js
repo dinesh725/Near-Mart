@@ -11,24 +11,28 @@ const startCronJobs = (app) => {
             const io = app.get("io");
             const now = new Date();
 
-            // ── 1. Unassign passive riders (accepted but no pickup in 10 min) ────
-            const tenMinsAgo = new Date(now.getTime() - 10 * 60 * 1000);
+            // ── 1. Unassign Dead Assignments (assigned but no pickup in 15 min) ────
+            const fifteenMinsAgo = new Date(now.getTime() - 15 * 60 * 1000);
 
             const stalledOrders = await Order.find({
-                status: "READY_FOR_PICKUP",
+                status: { $in: ["RIDER_ASSIGNED", "ARRIVED_AT_STORE"] },
                 acceptedByPartnerId: { $ne: null },
-                updatedAt: { $lt: tenMinsAgo },
+                updatedAt: { $lt: fifteenMinsAgo },
             });
 
             for (const order of stalledOrders) {
                 const riderId = order.acceptedByPartnerId;
 
+                order.status = "READY_FOR_PICKUP";
                 order.acceptedByPartnerId = null;
                 order.riderName = null;
                 order.failedAssignmentCount = (order.failedAssignmentCount || 0) + 1;
-                order.assignedRadius = Math.min((order.assignedRadius || 3000) + 2000, 7000);
+                // Add driver to exclude list
+                if (!order.rejectedByPartnerIds) order.rejectedByPartnerIds = [];
+                order.rejectedByPartnerIds.push(riderId);
+                
                 order.updatedAt = new Date();
-                order.dispatchLog.push({ riderId, action: "timeout", timestamp: now });
+                order.dispatchLog.push({ riderId, action: "stuck_timeout", timestamp: now });
                 await order.save();
 
                 const rider = await User.findById(riderId);
@@ -37,48 +41,49 @@ const startCronJobs = (app) => {
                     rider.activeOrderId = rider.activeOrderIds.length > 0 ? rider.activeOrderIds[0] : null;
                     await rider.save();
 
-                    if (io) io.to(`delivery_${riderId}`).emit("orderCancelled", { orderId: order._id, reason: "Timeout: Delivery acceptance expired." });
-                    await notify("delivery", `Order ${order._id} was unassigned due to timeout.`, "alert", riderId);
+                    if (io) io.to(`delivery_${riderId}`).emit("orderCancelled", { orderId: order._id, reason: "Timeout: You did not move to the store within 15 minutes." });
                 }
 
-                logger.info(`[Auto-Timeout] Order ${order._id} unassigned from ${riderId}. Radius expanded to ${order.assignedRadius}m`);
-                if (io) io.emit("orderNearbyAvailable", { orderId: order._id, location: order.pickupLocation, radius: order.assignedRadius });
+                logger.info(`[Auto-Timeout] Stuck Order ${order._id} unassigned from ${riderId}. Rider excluded from route.`);
+                // Trigger Dispatch Engine to reassign!
+                const { triggerDispatch } = require("./dispatchEngine");
+                setImmediate(() => triggerDispatch(app));
             }
 
-            // ── 2. Expand search radius for unaccepted orders (> 5 min) ──────────
-            const fiveMinsAgo = new Date(now.getTime() - 5 * 60 * 1000);
-            const ignoredOrders = await Order.find({
+            // ── 2. Dead Order Escalation (unassigned > 20 mins) ──────────
+            const twentyMinsAgo = new Date(now.getTime() - 20 * 60 * 1000);
+            const deadOrders = await Order.find({
                 status: "READY_FOR_PICKUP",
                 acceptedByPartnerId: null,
-                updatedAt: { $lt: fiveMinsAgo },
-                assignedRadius: { $lt: 7000 },
-            });
-
-            for (const order of ignoredOrders) {
-                order.assignedRadius = Math.min((order.assignedRadius || 3000) + 2000, 7000);
-                order.failedAssignmentCount = (order.failedAssignmentCount || 0) + 1;
-                order.updatedAt = new Date();
-                await order.save();
-
-                logger.info(`[Auto-Expand] Order ${order._id} radius expanded to ${order.assignedRadius}m`);
-                if (io) io.emit("orderNearbyAvailable", { orderId: order._id, location: order.pickupLocation, radius: order.assignedRadius });
-            }
-
-            // ── 3. Emergency Escalation (max radius reached, still no rider) ─────
-            const escalationOrders = await Order.find({
-                status: "READY_FOR_PICKUP",
-                acceptedByPartnerId: null,
-                assignedRadius: { $gte: 7000 },
                 escalationRequired: { $ne: true },
-                updatedAt: { $lt: fiveMinsAgo },
+                updatedAt: { $lt: twentyMinsAgo },
             });
 
-            for (const order of escalationOrders) {
+            for (const order of deadOrders) {
                 order.escalationRequired = true;
                 await order.save();
+                
+                logger.warn(`[ESCALATION] Order ${order._id} is starving for 20 mins — Admin dispatch required`);
+                const { notify } = require("../services/notificationService");
+                await notify("admin", `🚨 Starving Order: ${order._id} has sat for 20 mins with no riders.`, "alert");
+            }
 
-                logger.warn(`[ESCALATION] Order ${order._id} requires admin dispatch — max radius reached with no rider`);
-                await notify("admin", `🚨 Order ${order._id} needs manual dispatch — no riders available within 7km`, "alert");
+            // ── 3. Stuck "On the Way" Recovery (Rider picked up but didn't drop off > 60 mins) ──
+            const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+            const lostDeliveries = await Order.find({
+                status: { $in: ["PICKED_UP", "ON_THE_WAY", "ARRIVED_AT_CUSTOMER", "OUT_FOR_DELIVERY"] },
+                updatedAt: { $lt: oneHourAgo },
+                flagged: { $ne: true }
+            });
+
+            for (const order of lostDeliveries) {
+                order.flagged = true;
+                order.deliveryIssue = "Apparent Rider Abandonment / App crash > 1 hr";
+                await order.save();
+
+                logger.error(`[CRITICAL] Order ${order._id} stranded with Rider ${order.acceptedByPartnerId} for >1HR. Support flagged.`);
+                const { notify } = require("../services/notificationService");
+                await notify("admin", `🚨 STRANDED ORDER ${order._id}: Ghost rider timeout > 60m`, "alert");
             }
 
             // ── 4. Auto-Offline: ghost rider detection (inactive > 15 min) ───────

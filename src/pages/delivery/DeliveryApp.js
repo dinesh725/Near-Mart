@@ -19,11 +19,12 @@ function Toast({ msg, icon, onDone }) {
 
 export function DeliveryApp({ activeTab }) {
     const { user } = useAuth();
-    const { orders, startDelivery, markDelivered } = useStore();
+    const { orders, startDelivery, markDelivered, flagOrder } = useStore();
     const [online, setOnline] = useState(() => {
         try { return sessionStorage.getItem("nm_delivery_online") === "true"; } catch { return false; }
     });
     const [searching, setSearching] = useState(false);
+    const [currentOffer, setCurrentOffer] = useState(null);
     const [activeOrder, setActiveOrder] = useState(null);
     const [availableOrders, setAvailableOrders] = useState([]);
     const [availableB2BOrders, setAvailableB2BOrders] = useState([]);
@@ -161,11 +162,21 @@ export function DeliveryApp({ activeTab }) {
             setAvailableOrders(prev => prev.filter(o => (o._id || o.id) !== orderId));
         };
 
+        const handleNewOffer = (offer) => {
+            triggerPriorityAlert();
+            setCurrentOffer(offer);
+        };
+        const handleOfferExpired = (data) => {
+            setCurrentOffer(prev => (prev && prev.orderId === data.orderId) ? null : prev);
+        };
+
         socket.on("pickupValidation", handlePickupValidation);
         socket.on("deliveryValidation", handleDeliveryValidation);
         socket.on("deliveryStatusUpdate", handleStatusUpdate);
         socket.on("orderNearbyAvailable", handleNewTask);
         socket.on("orderRemovedFromQueue", handleRemoveTask);
+        socket.on("newDeliveryOffer", handleNewOffer);
+        socket.on("offerExpired", handleOfferExpired);
 
         return () => {
             socket.off("pickupValidation", handlePickupValidation);
@@ -173,6 +184,8 @@ export function DeliveryApp({ activeTab }) {
             socket.off("deliveryStatusUpdate", handleStatusUpdate);
             socket.off("orderNearbyAvailable", handleNewTask);
             socket.off("orderRemovedFromQueue", handleRemoveTask);
+            socket.off("newDeliveryOffer", handleNewOffer);
+            socket.off("offerExpired", handleOfferExpired);
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [stopTracking, liveLocation, fetchAvailableTasks]);
@@ -362,6 +375,29 @@ export function DeliveryApp({ activeTab }) {
         const dropLoc = currentOrder.dropLocation;
         if (!dropLoc) { setToast({ msg: "No delivery location set", icon: "❌" }); return; }
 
+        // B2C Secure Delivery OTP via Backend
+        const token = localStorage.getItem("nm_access_token");
+        if (token && currentOrder._id) {
+            const otp = window.prompt("SECURE DROP-OFF: Please enter the 4-digit Delivery OTP provided by the Customer.");
+            if (!otp) return;
+
+            try {
+                const res = await fetch(`${process.env.REACT_APP_API_URL || "http://localhost:5000/api"}/orders/${currentOrder._id}/deliver`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+                    body: JSON.stringify({ otp })
+                });
+                const data = await res.json();
+                if (!data.ok) {
+                    setToast({ msg: `Delivery Failed: ${data.error || "Invalid OTP"}`, icon: "❌" });
+                    return; // Halt dropoff
+                }
+            } catch (err) {
+                setToast({ msg: "Network error on delivery verification.", icon: "❌" });
+                return;
+            }
+        }
+
         // Try socket geofence validation
         if (socketRef.current?.connected) {
             socketRef.current.emit("confirmDelivery", {
@@ -388,6 +424,67 @@ export function DeliveryApp({ activeTab }) {
         }
     }, [liveLocation, currentOrder, haversineDistance, handleDelivered, stopTracking]);
 
+    const handleReportIssue = useCallback(async () => {
+        if (!currentOrder) return;
+        const issue = window.prompt("REPORT ISSUE (e.g. Customer missing, vehicle breakdown, etc). This suspends your current delivery.");
+        if (!issue) return;
+
+        const token = localStorage.getItem("nm_access_token");
+        if (token && currentOrder._id) {
+            try {
+                const res = await fetch(`${process.env.REACT_APP_API_URL || "http://localhost:5000/api"}/orders/${currentOrder._id}/flag`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+                    body: JSON.stringify({ issue })
+                });
+                if (!res.ok) {
+                    setToast({ msg: "Failed to escalate issue.", icon: "❌" });
+                    return;
+                }
+            } catch (err) {
+                setToast({ msg: "Network error escalating issue.", icon: "❌" });
+                return;
+            }
+        }
+
+        flagOrder(currentOrder._id || currentOrder.id, issue);
+        setActiveOrder(null);
+        stopTracking();
+        setToast({ msg: "Issue escalated to Support Team ⚠", icon: "🚩" });
+    }, [currentOrder, flagOrder, stopTracking]);
+
+    const handleAcceptOffer = useCallback(async () => {
+        if (!currentOffer) return;
+        const token = localStorage.getItem("nm_access_token");
+        try {
+            const res = await fetch(`${process.env.REACT_APP_API_URL || "http://localhost:5000/api"}/orders/${currentOffer.orderId}/accept-delivery`, {
+                method: "PATCH", headers: { "Authorization": `Bearer ${token}` }
+            });
+            const data = await res.json();
+            if (data.ok) {
+                setToast({ msg: "Offer Accepted! 🚀", icon: "🚀" });
+            } else {
+                setToast({ msg: data.msg || "Too late, offer expired or claimed.", icon: "❌" });
+            }
+        } catch (e) {
+            setToast({ msg: "Accept failed (network).", icon: "❌" });
+        }
+        setCurrentOffer(null);
+        // Force refresh active UI
+        setOnline(true);
+    }, [currentOffer]);
+
+    const handleRejectOffer = useCallback(async () => {
+        if (!currentOffer) return;
+        const token = localStorage.getItem("nm_access_token");
+        try {
+            await fetch(`${process.env.REACT_APP_API_URL || "http://localhost:5000/api"}/orders/${currentOffer.orderId}/reject-offer`, {
+                method: "PATCH", headers: { "Authorization": `Bearer ${token}` }
+            });
+        } catch (e) { }
+        setCurrentOffer(null);
+    }, [currentOffer]);
+
     // ── Render tab as inline JSX (NOT as sub-components — avoids infinite loop) ──
     const renderMap = (
         <div className="col gap0" style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
@@ -407,6 +504,25 @@ export function DeliveryApp({ activeTab }) {
                     <div style={{ fontWeight: 700, color: P.textMuted }}>Go Online to Start</div>
                 </div>
             )}
+
+            {currentOffer && (
+                <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.85)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+                    <div className="p-card" style={{ background: P.card, width: "100%", borderRadius: 24, padding: "30px 20px", textAlign: "center", animation: "popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275)" }}>
+                        <div style={{ fontSize: 48, marginBottom: 10 }}>🚨</div>
+                        <h2 style={{ fontSize: 24, fontWeight: 800, color: P.text, marginBottom: 5 }}>New Delivery Offer!</h2>
+                        {currentOffer.isBatch && <div style={{ background: P.primary, color: P.card, padding: "6px 12px", borderRadius: 8, fontSize: 13, fontWeight: 800, display: "inline-block", marginBottom: 10 }}>⭐ BATCH OPPORTUNITY</div>}
+                        <p style={{ color: P.textMuted, fontSize: 15, marginTop: 10 }}>
+                            <strong>{currentOffer.storeName}</strong> ({currentOffer.distanceToStoreMeters}m away)
+                        </p>
+                        <p style={{ color: P.success, fontSize: 22, fontWeight: 800, margin: "20px 0" }}>Expected: ₹{Math.round(currentOffer.total * 0.08) + 30}</p>
+                        <div style={{ display: "flex", gap: 10, marginTop: 25 }}>
+                            <button className="p-btn" style={{ flex: 1, background: "transparent", border: `2px solid ${P.danger}`, color: P.danger, fontSize: 15, fontWeight: 700 }} onClick={handleRejectOffer}>Reject</button>
+                            <button className="p-btn" style={{ flex: 2, background: P.success, color: "white", fontSize: 15, fontWeight: 800 }} onClick={handleAcceptOffer}>Accept Route</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             <div style={{ background: P.card, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: "20px 16px", boxShadow: "0 -10px 30px rgba(0,0,0,.4)", position: "relative", zIndex: 10 }}>
                 <div style={{ width: 40, height: 4, background: P.border, borderRadius: 4, margin: "0 auto 16px" }} />
                 <div className="row-between mb14">
@@ -429,6 +545,21 @@ export function DeliveryApp({ activeTab }) {
                                 {routeInfo?.duration > 0 && <span style={{ fontSize: 13, color: P.success }}>ETA: {Math.ceil(routeInfo.duration / 60)} min</span>}
                             </div>
                             <div style={{ fontSize: 13, color: P.textMuted, marginBottom: 12 }}>{currentOrder._id || currentOrder.id} · {currentOrder.storeName}</div>
+                            
+                            {/* Contact Action Bar */}
+                            <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+                                {currentOrder.sellerPhone && (
+                                    <a href={`tel:${currentOrder.sellerPhone}`} className="p-btn" style={{ flex: 1, background: P.card, border: `1px solid ${P.border}`, color: P.text, textDecoration: "none", textAlign: "center", fontSize: 13 }}>
+                                        📞 Call Store
+                                    </a>
+                                )}
+                                {currentOrder.customerPhone && (
+                                    <a href={`tel:${currentOrder.customerPhone}`} className="p-btn" style={{ flex: 1, background: P.card, border: `1px solid ${P.border}`, color: P.text, textDecoration: "none", textAlign: "center", fontSize: 13 }}>
+                                        📞 Call Customer
+                                    </a>
+                                )}
+                            </div>
+
                             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                                 {geofenceStatus?.pickup && (
                                     <div style={{ fontSize: 12, color: geofenceStatus.pickup.valid ? P.success : P.danger, fontWeight: 600, textAlign: "center" }}>
@@ -450,6 +581,9 @@ export function DeliveryApp({ activeTab }) {
                                 </div>
                                 <button className="p-btn w-100" style={{ background: P.surface, color: P.text, border: `1px solid ${P.border}` }} onClick={handleSimulation} disabled={isTracking}>
                                     {isTracking ? "Simulating GPS..." : "Dev: Simulate GPS"}
+                                </button>
+                                <button className="p-btn w-100" style={{ background: "transparent", color: P.danger, border: "none", fontWeight: 700, fontSize: 13, marginTop: 4 }} onClick={handleReportIssue}>
+                                    ⚠ Report Issue
                                 </button>
                             </div>
                         </div>

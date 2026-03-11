@@ -1,13 +1,23 @@
 const mongoose = require("mongoose");
 
-const ORDER_STATUSES = ["PENDING_PAYMENT", "CONFIRMED", "PREPARING", "READY_FOR_PICKUP", "OUT_FOR_DELIVERY", "DELIVERED", "CANCELLED", "REJECTED"];
+const ORDER_STATUSES = [
+    "PENDING_PAYMENT", "CONFIRMED", "PREPARING", "READY_FOR_PICKUP", 
+    "RIDER_ASSIGNED", "ARRIVED_AT_STORE", "PICKED_UP", 
+    "ON_THE_WAY", "ARRIVED_AT_CUSTOMER", "OUT_FOR_DELIVERY", 
+    "DELIVERED", "CANCELLED", "REJECTED"
+];
 
 const VALID_TRANSITIONS = {
     PENDING_PAYMENT: ["CONFIRMED", "CANCELLED"],
     CONFIRMED: ["PREPARING", "CANCELLED", "REJECTED"],
     PREPARING: ["READY_FOR_PICKUP", "CANCELLED"],
-    READY_FOR_PICKUP: ["OUT_FOR_DELIVERY"],
-    OUT_FOR_DELIVERY: ["DELIVERED"],
+    READY_FOR_PICKUP: ["RIDER_ASSIGNED", "OUT_FOR_DELIVERY", "CANCELLED"], // Kept classic OUT_FOR_DELIVERY for backwards app compatibility
+    RIDER_ASSIGNED: ["ARRIVED_AT_STORE", "PICKED_UP", "CANCELLED"],
+    ARRIVED_AT_STORE: ["PICKED_UP", "CANCELLED"],
+    PICKED_UP: ["ON_THE_WAY", "OUT_FOR_DELIVERY"],
+    ON_THE_WAY: ["ARRIVED_AT_CUSTOMER", "DELIVERED"],
+    OUT_FOR_DELIVERY: ["ARRIVED_AT_CUSTOMER", "DELIVERED"], // Legacy support loop
+    ARRIVED_AT_CUSTOMER: ["DELIVERED"],
     DELIVERED: [],
     CANCELLED: [],
     REJECTED: [],
@@ -28,8 +38,13 @@ const orderSchema = new mongoose.Schema({
     sellerId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     storeId: { type: String, default: "STORE-412" },
     storeName: { type: String, default: "Dark Store #412" },
+    customerPhone: { type: String, default: "" },
+    sellerPhone: { type: String, default: "" },
     deliveryPartnerId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     acceptedByPartnerId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    offeredToPartnerId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    offerExpiresAt: { type: Date },
+    rejectedByPartnerIds: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
     riderName: { type: String },
     items: { type: [orderItemSchema], required: true },
     subtotal: { type: Number, default: 0 },
@@ -91,9 +106,13 @@ const orderSchema = new mongoose.Schema({
     // Geofence validation
     geofencePickupValidated: { type: Boolean, default: false },
     geofenceDeliveryValidated: { type: Boolean, default: false },
+    deliveryOtp: { type: String, select: false }, // Secure drop-off code hidden from riders
+    deliveryIssue: { type: String }, // To track delivery disputes
     // ── Delivery Reliability Metrics ─────────────────────────────────
     acceptedAt: { type: Date },          // When rider accepted
+    arrivedAtStoreAt: { type: Date },    // ARRIVED_AT_STORE
     pickedUpAt: { type: Date },          // When rider confirmed pickup
+    arrivedAtCustomerAt: { type: Date }, // ARRIVED_AT_CUSTOMER
     deliveredAt: { type: Date },         // When rider confirmed delivery
     pickupDelayMs: { type: Number },     // Time from READY_FOR_PICKUP → actual pickup
     deliveryDurationMs: { type: Number },// Time from pickup → delivery
