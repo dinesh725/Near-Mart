@@ -87,7 +87,6 @@ const startCronJobs = (app) => {
             }
 
             // ── 4. Auto-Offline: ghost rider detection (inactive > 15 min) ───────
-            const fifteenMinsAgo = new Date(now.getTime() - 15 * 60 * 1000);
             const ghostRiders = await User.find({
                 role: "delivery",
                 isOnline: true,
