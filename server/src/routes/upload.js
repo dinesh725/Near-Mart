@@ -1,9 +1,29 @@
 const express = require("express");
 const { authenticate } = require("../middleware/auth");
-const { upload, uploadImage } = require("../services/cloudinaryService");
+const { upload, uploadImage, generateSignature } = require("../services/cloudinaryService");
 const logger = require("../utils/logger");
 
 const router = express.Router();
+
+// ── Direct Browser Upload Signature ──────────────────────────────────────────
+router.post("/signature", authenticate, (req, res, next) => {
+    try {
+        const { folder = "nearmart/products" } = req.body;
+        const timestamp = Math.round(new Date().getTime() / 1000);
+        const paramsToSign = {
+            timestamp,
+            folder,
+        };
+        const signData = generateSignature(paramsToSign);
+        res.json({ ok: true, ...signData });
+    } catch (err) {
+        logger.error("Failed to generate upload signature", { error: err.message });
+        if (err.message?.includes("not configured")) {
+            return res.status(503).json({ ok: false, error: "Image upload service not configured" });
+        }
+        next(err);
+    }
+});
 
 // ── Upload Product / Store Image ─────────────────────────────────────────────
 router.post("/image",

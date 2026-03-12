@@ -23,6 +23,26 @@ const productSchema = new mongoose.Schema({
     stock: { type: Number, default: 0, min: 0 },
     unit: { type: String, default: "pcs" },
 
+    // ── Phase-2 Product Upgrades ──────────────────────────────────────────────
+    globalProductId: { type: mongoose.Schema.Types.ObjectId, ref: "GlobalProduct", index: true },
+    variants: {
+        type: [{
+            variantId: { type: String, required: true, default: () => new mongoose.Types.ObjectId().toString() },
+            name: { type: String, required: true },
+            price: { type: Number, required: true, min: 0 },
+            stock: { type: Number, default: 0, min: 0 }
+        }],
+        default: []
+    },
+    addOns: {
+        type: [{
+            addOnId: { type: String, required: true, default: () => new mongoose.Types.ObjectId().toString() },
+            name: { type: String, required: true },
+            price: { type: Number, required: true, min: 0 }
+        }],
+        default: []
+    },
+
     // ── Media ──────────────────────────────────────────────────────────────────
     imageUrl: { type: String, default: "" },     // primary image (legacy)
     images: { type: [String], default: [] },   // gallery (up to 5 URLs)

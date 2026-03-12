@@ -2,6 +2,7 @@ import React, { useState, useCallback, useEffect, useRef } from "react";
 import { P } from "../../theme/theme";
 import { useAuth } from "../../auth/AuthContext";
 import { useStore } from "../../context/GlobalStore";
+import { CloudImage } from "../../components/CloudImage";
 import { ProductDetailSheet } from "../../components/ProductDetailSheet";
 import { CheckoutFlow } from "./CheckoutFlow";
 import { WalletPage } from "./WalletPage";
@@ -45,7 +46,7 @@ function ProductCard({ p, qty, onAdd, onRemove, onOpen }) {
                     <div className="badge-out-overlay"><span>Out of Stock</span></div>
                 )}
                 {p.imageUrl
-                    ? <img src={p.imageUrl} alt={p.name} loading="lazy" onError={e => { e.target.style.display = "none"; e.target.parentNode.innerHTML = `<span style="font-size:60px;opacity:.85">${p.emoji}</span>`; }} />
+                    ? <CloudImage src={p.imageUrl} width={300} alt={p.name} className="product-card-img" />
                     : <span style={{ fontSize: 60, opacity: 0.85 }}>{p.emoji}</span>
                 }
             </div>
@@ -428,7 +429,7 @@ export function CustomerApp({ activeTab, setActiveTab }) {
                                     {/* Image */}
                                     <div style={{ width: 52, height: 52, borderRadius: 10, background: P.surface, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", flexShrink: 0 }}>
                                         {item.imageUrl
-                                            ? <img src={item.imageUrl} alt={item.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                                            ? <CloudImage src={item.imageUrl} width={100} height={100} alt={item.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                                             : <span style={{ fontSize: 28 }}>{item.emoji}</span>
                                         }
                                     </div>

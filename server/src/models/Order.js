@@ -30,6 +30,20 @@ const orderItemSchema = new mongoose.Schema({
     imageUrl: { type: String, default: "" },
     qty: { type: Number, required: true, min: 1 },
     price: { type: Number, required: true, min: 0 },
+    // ── Phase 2: Variants & Add-Ons ─────────────────────────────────
+    selectedVariant: {
+        variantId: { type: String },
+        name: { type: String },
+        price: { type: Number }
+    },
+    selectedAddOns: {
+        type: [{
+            addOnId: { type: String },
+            name: { type: String },
+            price: { type: Number }
+        }],
+        default: []
+    },
 }, { _id: false });
 
 const orderSchema = new mongoose.Schema({

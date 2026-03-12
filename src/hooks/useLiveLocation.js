@@ -234,43 +234,41 @@ const useLiveLocation = (orderId, role = 'customer', userId = null) => {
         if (role !== 'delivery') return;
 
         try {
-            // Try Capacitor geolocation first (for mobile)
-            const { Geolocation } = await import('@capacitor/geolocation').catch(() => ({}));
+            const { registerPlugin } = await import('@capacitor/core').catch(() => ({}));
+            const BackgroundGeolocation = registerPlugin ? registerPlugin('BackgroundGeolocation') : null;
 
-            if (Geolocation) {
-                const perms = await Geolocation.checkPermissions();
-                if (perms.location !== 'granted') {
-                    const req = await Geolocation.requestPermissions();
-                    if (req.location !== 'granted') {
-                        console.warn('[GPS] Permission denied');
-                        return;
+            if (BackgroundGeolocation) {
+                const watcherId = await BackgroundGeolocation.addWatcher(
+                    {
+                        backgroundMessage: "Tracking delivery route securely.",
+                        backgroundTitle: "NearMart Delivery Active",
+                        requestPermissions: true,
+                        stale: false,
+                        distanceFilter: 5 // Get updates only every 5 meters to optimize cost/CPU
+                    },
+                    function callback(location, error) {
+                        if (error) {
+                            console.warn("[BackgroundGPS] Runtime error:", error);
+                            return;
+                        }
+                        if (location && location.coords) {
+                            const coords = location.coords;
+                            if (coords.accuracy && coords.accuracy > GPS_ACCURACY_MAX) {
+                                return; // Ignore poor satellite bounce
+                            }
+                            emitLocation({
+                                lat: coords.latitude,
+                                lng: coords.longitude,
+                                heading: coords.heading ?? 0,
+                                speed: coords.speed ?? 0,
+                                accuracy: coords.accuracy,
+                            });
+                        }
                     }
-                }
-
-                const id = await Geolocation.watchPosition({
-                    enableHighAccuracy: true,
-                    timeout: 10000,
-                    maximumAge: 0,
-                }, (position, err) => {
-                    if (err) { console.warn('[GPS] Watch error:', err); return; }
-                    if (!position) return;
-                    const { coords } = position;
-                    // Skip if accuracy too low
-                    if (coords.accuracy && coords.accuracy > GPS_ACCURACY_MAX) {
-                        console.log('[GPS] Skipping low-accuracy reading:', coords.accuracy, 'm');
-                        return;
-                    }
-                    emitLocation({
-                        lat: coords.latitude,
-                        lng: coords.longitude,
-                        heading: coords.heading ?? 0,
-                        speed: coords.speed ?? 0,
-                        accuracy: coords.accuracy,
-                    });
-                });
-                watchIdRef.current = id;
+                );
+                watchIdRef.current = watcherId;
                 setIsTracking(true);
-                console.log('[GPS] Capacitor watch started');
+                console.log('[GPS] Phase-3 Background Active', watcherId);
             } else {
                 // Fallback: HTML5 Geolocation API
                 if (navigator.geolocation) {
@@ -309,13 +307,15 @@ const useLiveLocation = (orderId, role = 'customer', userId = null) => {
 
         if (watchIdRef.current !== null) {
             try {
-                const { Geolocation } = await import('@capacitor/geolocation').catch(() => ({}));
-                if (Geolocation) {
-                    await Geolocation.clearWatch({ id: watchIdRef.current });
+                const { registerPlugin } = await import('@capacitor/core').catch(() => ({}));
+                const BackgroundGeolocation = registerPlugin ? registerPlugin('BackgroundGeolocation') : null;
+
+                if (BackgroundGeolocation) {
+                    await BackgroundGeolocation.removeWatcher({ id: watchIdRef.current });
                 } else if (navigator.geolocation) {
                     navigator.geolocation.clearWatch(watchIdRef.current);
                 }
-            } catch { /* ignore cleanup errors */ }
+            } catch (err) { console.warn("[GPS] Stop Tracking fallback", err); }
             watchIdRef.current = null;
         }
         setIsTracking(false);

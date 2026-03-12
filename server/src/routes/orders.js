@@ -71,8 +71,37 @@ router.post("/",
             for (const item of items) {
                 const product = await Product.findById(item.productId);
                 if (!product) throw new BadRequest(`Product ${item.productId} not found`);
-                if (product.stock < item.qty) {
-                    throw new BadRequest(`Insufficient stock for ${product.name} (available: ${product.stock})`);
+
+                let effectivePrice = product.sellingPrice;
+                let availableStock = product.stock;
+                let finalVariant = undefined;
+                let finalAddOns = [];
+
+                if (item.selectedVariant) {
+                    const reqVariantId = item.selectedVariant.variantId || item.selectedVariant;
+                    const variant = product.variants?.find(v => v.variantId === reqVariantId || v.name === reqVariantId);
+                    if (!variant) throw new BadRequest(`Variant not found on ${product.name}`);
+                    if (variant.stock < item.qty) throw new BadRequest(`Variant ${variant.name} has insufficient stock`);
+                    effectivePrice = variant.price;
+                    availableStock = variant.stock;
+                    finalVariant = { variantId: variant.variantId, name: variant.name, price: variant.price };
+                }
+
+                if (item.selectedAddOns && Array.isArray(item.selectedAddOns)) {
+                    for (const addOnReq of item.selectedAddOns) {
+                        const reqAddOnId = addOnReq.addOnId || addOnReq;
+                        const addon = product.addOns?.find(a => a.addOnId === reqAddOnId || a.name === reqAddOnId);
+                        if (addon) {
+                            effectivePrice += addon.price;
+                            finalAddOns.push({ addOnId: addon.addOnId, name: addon.name, price: addon.price });
+                        } else {
+                            throw new BadRequest(`Add-on not found on ${product.name}`);
+                        }
+                    }
+                }
+
+                if (availableStock < item.qty) {
+                    throw new BadRequest(`Insufficient stock for ${product.name} ${finalVariant ? '('+finalVariant.name+')' : ''} (available: ${availableStock})`);
                 }
 
                 const sId = product.sellerId ? product.sellerId.toString() : "DEFAULT_SELLER";
@@ -86,9 +115,11 @@ router.post("/",
                     emoji: product.emoji,
                     imageUrl: product.imageUrl || "",
                     qty: item.qty,
-                    price: product.sellingPrice,
+                    price: effectivePrice,
+                    selectedVariant: finalVariant,
+                    selectedAddOns: finalAddOns
                 });
-                sellerGroups[sId].subtotal += (product.sellingPrice * item.qty);
+                sellerGroups[sId].subtotal += (effectivePrice * item.qty);
             }
 
             // ── Drop location from request ───────────────────────────────────
@@ -211,7 +242,27 @@ router.post("/",
                 
                 // Deduct stock for this group
                 for (const item of group.items) {
-                    await Product.findByIdAndUpdate(item.productId, { $inc: { stock: -item.qty } });
+                    let updateQuery = { $inc: { stock: -item.qty } };
+                    
+                    if (item.selectedVariant && item.selectedVariant.variantId) {
+                        updateQuery = { $inc: { "variants.$[v].stock": -item.qty } };
+                        await Product.findOneAndUpdate(
+                            { _id: item.productId },
+                            updateQuery,
+                            { arrayFilters: [{ "v.variantId": item.selectedVariant.variantId }] }
+                        );
+                    } else if (item.selectedVariant && item.selectedVariant.name) {
+                        // Fallback to name if variantId somehow missing
+                        updateQuery = { $inc: { "variants.$[v].stock": -item.qty } };
+                        await Product.findOneAndUpdate(
+                            { _id: item.productId },
+                            updateQuery,
+                            { arrayFilters: [{ "v.name": item.selectedVariant.name }] }
+                        );
+                    } else {
+                        await Product.findByIdAndUpdate(item.productId, updateQuery);
+                    }
+
                     const updated = await Product.findById(item.productId);
                     if (updated && updated.stock < 10) {
                         await notify("seller", `⚠ Low stock alert: ${updated.name} (${updated.stock} left)`, "alert", store._id);
@@ -502,7 +553,24 @@ router.patch("/:id/reject",
             // Release inventory
             const Product = require("../models/Product");
             for (const item of order.items) {
-                await Product.findByIdAndUpdate(item.productId, { $inc: { stock: item.qty } });
+                let updateQuery = { $inc: { stock: item.qty } };
+                if (item.selectedVariant && item.selectedVariant.variantId) {
+                    updateQuery = { $inc: { "variants.$[v].stock": item.qty } };
+                    await Product.findOneAndUpdate(
+                        { _id: item.productId },
+                        updateQuery,
+                        { arrayFilters: [{ "v.variantId": item.selectedVariant.variantId }] }
+                    );
+                } else if (item.selectedVariant && item.selectedVariant.name) {
+                    updateQuery = { $inc: { "variants.$[v].stock": item.qty } };
+                    await Product.findOneAndUpdate(
+                        { _id: item.productId },
+                        updateQuery,
+                        { arrayFilters: [{ "v.name": item.selectedVariant.name }] }
+                    );
+                } else {
+                    await Product.findByIdAndUpdate(item.productId, updateQuery);
+                }
             }
 
             order.status = "REJECTED";
@@ -764,7 +832,24 @@ router.patch("/:id/cancel",
 
             // Restore stock
             for (const item of order.items) {
-                await Product.findByIdAndUpdate(item.productId, { $inc: { stock: item.qty } });
+                let updateQuery = { $inc: { stock: item.qty } };
+                if (item.selectedVariant && item.selectedVariant.variantId) {
+                    updateQuery = { $inc: { "variants.$[v].stock": item.qty } };
+                    await Product.findOneAndUpdate(
+                        { _id: item.productId },
+                        updateQuery,
+                        { arrayFilters: [{ "v.variantId": item.selectedVariant.variantId }] }
+                    );
+                } else if (item.selectedVariant && item.selectedVariant.name) {
+                    updateQuery = { $inc: { "variants.$[v].stock": item.qty } };
+                    await Product.findOneAndUpdate(
+                        { _id: item.productId },
+                        updateQuery,
+                        { arrayFilters: [{ "v.name": item.selectedVariant.name }] }
+                    );
+                } else {
+                    await Product.findByIdAndUpdate(item.productId, updateQuery);
+                }
             }
 
             const io = req.app.get("io");

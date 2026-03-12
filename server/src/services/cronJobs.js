@@ -74,7 +74,24 @@ cron.schedule("*/5 * * * *", async () => {
         for (const order of staleOrders) {
             // Restore stock for this order
             for (const item of order.items) {
-                await Product.findByIdAndUpdate(item.productId, { $inc: { stock: item.qty } });
+                let updateQuery = { $inc: { stock: item.qty } };
+                if (item.selectedVariant && item.selectedVariant.variantId) {
+                    updateQuery = { $inc: { "variants.$[v].stock": item.qty } };
+                    await Product.findOneAndUpdate(
+                        { _id: item.productId },
+                        updateQuery,
+                        { arrayFilters: [{ "v.variantId": item.selectedVariant.variantId }] }
+                    );
+                } else if (item.selectedVariant && item.selectedVariant.name) {
+                    updateQuery = { $inc: { "variants.$[v].stock": item.qty } };
+                    await Product.findOneAndUpdate(
+                        { _id: item.productId },
+                        updateQuery,
+                        { arrayFilters: [{ "v.name": item.selectedVariant.name }] }
+                    );
+                } else {
+                    await Product.findByIdAndUpdate(item.productId, updateQuery);
+                }
             }
 
             // Refund wallet only once per payment group

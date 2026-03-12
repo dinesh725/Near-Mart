@@ -35,6 +35,7 @@ const config = {
     nodeEnv: process.env.NODE_ENV || "development",
     platformCommission: 0.10,   // 10%
     deliveryFeeFlat: 30,        // ₹30
+    redisUrl: process.env.REDIS_URL || "redis://localhost:6379",
 };
 
 // ── Startup Warnings ─────────────────────────────────────────────────────────

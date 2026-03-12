@@ -3,6 +3,7 @@ import ReactDOM from "react-dom";
 import { P } from "../../theme/theme";
 import api from "../../api/client";
 import socketManager from "../../utils/socketManager";
+import { CloudImage } from "../../components/CloudImage";
 import { OrderDetailSheet } from "./OrderDetailSheet";
 import { PullToRefresh } from "../../components/PullToRefresh";
 // ── Status Configuration ──────────────────────────────────────────────────────
@@ -141,7 +142,7 @@ function OrderCard({ order, onViewDetail, onTrack, onCancel, onReorder }) {
                         border: `1px solid ${P.border}`, overflow: "hidden", flexShrink: 0,
                     }}>
                         {item.imageUrl
-                            ? <img src={item.imageUrl} alt={item.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                            ? <CloudImage src={item.imageUrl} width={100} height={100} alt={item.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                             : <span style={{ fontSize: 20 }}>{item.emoji || "📦"}</span>
                         }
                     </div>

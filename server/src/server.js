@@ -6,6 +6,10 @@ const config = require("./config");
 const logger = require("./utils/logger");
 const { startCronJobs } = require("./utils/cronJobs");
 const { startDispatchEngine } = require("./utils/dispatchEngine");
+const { setupCronWorkers } = require("./workers/cronWorkers");
+const { setupNotificationWorkers } = require("./workers/notificationWorkers");
+const { createAdapter } = require("@socket.io/redis-adapter");
+const redisClient = require("./config/redis");
 const DeliveryTrackingLog = require("./models/DeliveryTrackingLog");
 const Order = require("./models/Order");
 
@@ -37,6 +41,10 @@ const start = async () => {
         }
 
         const server = http.createServer(app);
+        
+        const pubClient = redisClient.duplicate();
+        const subClient = redisClient.duplicate();
+
         const io = new Server(server, {
             cors: {
                 origin: config.corsOrigin,
@@ -45,12 +53,19 @@ const start = async () => {
             pingTimeout: 30000,
             pingInterval: 10000,
             transports: ["websocket", "polling"],
+            adapter: createAdapter(pubClient, subClient)
         });
 
         app.set("io", io);
 
-        // In-memory rider locations for quick lookups
+        // In-memory rider locations for quick lookups (Fallback)
         const riderLocations = new Map();
+        // In-memory spoofing tracker (Fallback)
+        const riderTeleportTracker = new Map();
+        // Cache drop locations for fast dynamic ETA calculations
+        const orderMetaCache = new Map();
+        
+        app.set("liveRiders", riderTeleportTracker);
 
         // Periodic flush of location buffer
         setInterval(flushLocationBuffer, FLUSH_INTERVAL_MS);
@@ -85,13 +100,8 @@ const start = async () => {
                 logger.info(`Socket ${socket.id} joined delivery_pool`);
             });
 
-            // In-memory spoofing tracker (riderId -> { lat, lng, time })
-            const riderTeleportTracker = new Map();
-            app.set("liveRiders", riderTeleportTracker);
+            // Removed old memory maps redeclarations from here
             
-            // Cache drop locations for fast dynamic ETA calculations
-            const orderMetaCache = new Map();
-
             // Haversine helper
             const haversine = (loc1, loc2) => {
                 if (!loc1 || !loc2) return 0;
@@ -103,14 +113,21 @@ const start = async () => {
                 return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
             };
 
-            socket.on("updateLocation", (data) => {
+            socket.on("updateLocation", async (data) => {
                 if (data.orderId && data.location && data.deliveryPartnerId) {
                     const riderId = data.deliveryPartnerId;
                     const now = Date.now();
                     const newLoc = data.location;
 
                     // ── GPS Spoof & Anti-Teleport Protection ───────────────
-                    const lastLoc = riderTeleportTracker.get(riderId);
+                    let lastLoc = riderTeleportTracker.get(riderId);
+                    try {
+                        const rawLastLoc = await redisClient.hget(`rider:${riderId}:meta`, "data");
+                        if (rawLastLoc) lastLoc = JSON.parse(rawLastLoc);
+                    } catch (e) {
+                        // Silent fallback
+                    }
+
                     if (lastLoc) {
                         const distMeters = haversine(lastLoc, newLoc);
                         const timeDeltaSeconds = (now - lastLoc.time) / 1000;
@@ -130,16 +147,32 @@ const start = async () => {
                     }
 
                     // Valid location - cache for next jump calc and entire dispatch engine
-                    riderTeleportTracker.set(riderId, { 
+                    const riderData = { 
                         lat: newLoc.lat, 
                         lng: newLoc.lng, 
                         time: now,
                         batteryLevel: data.batteryLevel || 1.0,
                         status: data.status || "online",
                         activeCount: data.activeCount || 0
-                    });
-
+                    };
+                    
+                    riderTeleportTracker.set(riderId, riderData);
                     riderLocations.set(data.orderId, { ...data.location, lastUpdate: now });
+
+                    // Distributed Cluster Update (Single Source of Truth)
+                    try {
+                        // Geospatial Storage Index
+                        await redisClient.geoadd("riders:locations", newLoc.lng, newLoc.lat, riderId);
+                        
+                        // Metadata JSON blob
+                        await redisClient.hset(`rider:${riderId}:meta`, "data", JSON.stringify(riderData));
+                        await redisClient.pexpire(`rider:${riderId}:meta`, 12 * 3600 * 1000);
+                        
+                        // Link specific order tracking for pickup/delivery geofencing 
+                        await redisClient.hset("order:locations", data.orderId, JSON.stringify({ ...data.location, lastUpdate: now }));
+                    } catch (e) {
+                        logger.error(`Redis Location sync failed for rider ${riderId}`, { error: e.message });
+                    }
 
                     // ── Dynamic ETA Engine ──────────────────────────────────────
                     // Perform computation without blocking socket emit
@@ -207,8 +240,13 @@ const start = async () => {
             });
 
             // Geofence: rider confirms pickup (within 200m of store)
-            socket.on("confirmPickup", (data) => {
-                const riderLoc = riderLocations.get(data.orderId);
+            socket.on("confirmPickup", async (data) => {
+                let riderLoc = riderLocations.get(data.orderId);
+                try {
+                    const redisLoc = await redisClient.hget("order:locations", data.orderId);
+                    if (redisLoc) riderLoc = JSON.parse(redisLoc);
+                } catch (e) {}
+                
                 if (riderLoc && data.pickupLocation) {
                     const dist = haversine(riderLoc, data.pickupLocation);
                     const valid = dist <= 200; // 200m tolerance for GPS drift
@@ -222,8 +260,12 @@ const start = async () => {
             });
 
             // Geofence: rider confirms delivery (within 200m of customer)
-            socket.on("confirmDelivery", (data) => {
-                const riderLoc = riderLocations.get(data.orderId);
+            socket.on("confirmDelivery", async (data) => {
+                let riderLoc = riderLocations.get(data.orderId);
+                try {
+                    const redisLoc = await redisClient.hget("order:locations", data.orderId);
+                    if (redisLoc) riderLoc = JSON.parse(redisLoc);
+                } catch (e) {}
                 if (riderLoc && data.dropLocation) {
                     const dist = haversine(riderLoc, data.dropLocation);
                     const valid = dist <= 200;
@@ -233,6 +275,9 @@ const start = async () => {
                             orderId: data.orderId, status: "DELIVERED", timestamp: Date.now()
                         });
                         riderLocations.delete(data.orderId);
+                        try {
+                            await redisClient.hdel("order:locations", data.orderId);
+                        } catch (e) {}
                     }
                 }
             });
@@ -249,6 +294,8 @@ const start = async () => {
 
             // Start background logistics intelligence
             startCronJobs(app);
+            setupCronWorkers(app);
+            setupNotificationWorkers();
             startDispatchEngine(app);
             logger.info(`   Environment: ${config.nodeEnv}`);
             logger.info(`   CORS origin: ${config.corsOrigin}`);

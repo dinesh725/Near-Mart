@@ -5,6 +5,9 @@ const { authenticate, authorize } = require("../middleware/auth");
 const { validate } = require("../middleware/validate");
 const { NotFound } = require("../utils/errors");
 
+const SearchEngine = require("../services/searchEngine");
+const redisClient = require("../config/redis");
+
 const User = require("../models/User");
 
 const router = express.Router();
@@ -17,15 +20,32 @@ router.get("/search", async (req, res, next) => {
         const pageNum = Math.max(1, parseInt(page, 10) || 1);
         const limitNum = Math.min(50, Math.max(1, parseInt(limit, 10) || 20));
 
+        // Redis cache check
+        // Round lat/lng to 2 decimal places to create a ~1.1km cache grid to improve hit rate
+        const cacheLat = lat ? parseFloat(lat).toFixed(2) : "0";
+        const cacheLng = lng ? parseFloat(lng).toFixed(2) : "0";
+        const cacheKey = `search:${q || "all"}:${cacheLat}:${cacheLng}:${sort}:${category || "all"}:${pageNum}:${limitNum}`;
+        
+        const cachedMatch = await redisClient.get(cacheKey);
+        if (cachedMatch) {
+            return res.json(JSON.parse(cachedMatch));
+        }
+
         // Build filter
         const filter = { status: "active", stock: { $gt: 0 } };
         if (category) filter.category = category;
+
         if (q) {
-            filter.$or = [
-                { name: { $regex: q, $options: "i" } },
-                { category: { $regex: q, $options: "i" } },
-                { description: { $regex: q, $options: "i" } },
-            ];
+            const searchIds = await SearchEngine.searchProducts(q, 100);
+            if (searchIds !== "USE_DB_FALLBACK" && Array.isArray(searchIds)) {
+                filter._id = { $in: searchIds };
+            } else {
+                filter.$or = [
+                    { name: { $regex: q, $options: "i" } },
+                    { category: { $regex: q, $options: "i" } },
+                    { description: { $regex: q, $options: "i" } },
+                ];
+            }
         }
 
         // Fetch all matching products with seller info
@@ -126,7 +146,7 @@ router.get("/search", async (req, res, next) => {
         const paginatedGroups = allGroups.slice(startIdx, startIdx + limitNum);
         const hasMore = startIdx + limitNum < totalGroups;
 
-        res.json({
+        const responseObj = {
             ok: true,
             products: sorted,           // flat list (for backward compat)
             grouped: paginatedGroups,   // paginated grouped by name
@@ -134,7 +154,12 @@ router.get("/search", async (req, res, next) => {
             totalGroups,
             page: pageNum,
             hasMore,
-        });
+        };
+
+        // Cache for 2 minutes
+        await redisClient.setex(cacheKey, 120, JSON.stringify(responseObj));
+
+        res.json(responseObj);
     } catch (err) { next(err); }
 });
 
@@ -150,6 +175,15 @@ router.get("/",
             const page = parseInt(req.query.page) || 1;
             const limit = parseInt(req.query.limit) || 20;
             const skip = (page - 1) * limit;
+
+            const categoryFilter = req.query.category || "all";
+            const searchFilter = req.query.search || "all";
+            const cacheKey = `products_list:${categoryFilter}:${searchFilter}:${page}:${limit}`;
+
+            const cachedMatch = await redisClient.get(cacheKey);
+            if (cachedMatch) {
+                return res.json(JSON.parse(cachedMatch));
+            }
 
             const filter = { status: "active" };
             if (req.query.category) filter.category = req.query.category;
@@ -167,11 +201,14 @@ router.get("/",
                 Product.countDocuments(filter),
             ]);
 
-            res.json({
+            const responseObj = {
                 ok: true,
                 products,
                 pagination: { page, limit, total, pages: Math.ceil(total / limit) },
-            });
+            };
+
+            await redisClient.setex(cacheKey, 120, JSON.stringify(responseObj));
+            res.json(responseObj);
         } catch (err) { next(err); }
     }
 );
@@ -200,6 +237,7 @@ router.post("/",
                 ...req.body,
                 sellerId: req.user._id,
             });
+            await SearchEngine.syncProduct(product);
             res.status(201).json({ ok: true, product });
         } catch (err) { next(err); }
     }
@@ -222,6 +260,7 @@ router.patch("/:id",
                 { $set: req.body },
                 { new: true, runValidators: true }
             );
+            await SearchEngine.syncProduct(product);
             res.json({ ok: true, product });
         } catch (err) { next(err); }
     }
@@ -243,6 +282,7 @@ router.patch("/:id/stock",
 
             product.stock = Math.max(0, product.stock + req.body.delta);
             await product.save();
+            await SearchEngine.syncProduct(product);
             res.json({ ok: true, product });
         } catch (err) { next(err); }
     }
@@ -261,6 +301,7 @@ router.delete("/:id",
             }
 
             await product.deleteOne(); // Use deleteOne to trigger any hooks if they exist, or just remove
+            await SearchEngine.removeProduct(req.params.id);
             res.json({ ok: true, message: "Deleted successfully" });
         } catch (err) { next(err); }
     }

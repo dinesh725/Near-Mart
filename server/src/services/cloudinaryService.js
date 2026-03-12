@@ -101,4 +101,18 @@ async function deleteImage(publicId) {
     }
 }
 
-module.exports = { upload, uploadImage, deleteImage, ensureConfigured };
+// ── Generate Upload Signature for Direct Browser Uploads ─────────────────────
+function generateSignature(paramsToSign) {
+    if (!ensureConfigured()) {
+        throw new Error("Cloudinary not configured");
+    }
+    const signature = cloudinary.utils.api_sign_request(paramsToSign, config.cloudinary.apiSecret);
+    return {
+        signature,
+        timestamp: paramsToSign.timestamp,
+        cloudName: config.cloudinary.cloudName,
+        apiKey: config.cloudinary.apiKey,
+    };
+}
+
+module.exports = { upload, uploadImage, deleteImage, ensureConfigured, generateSignature };

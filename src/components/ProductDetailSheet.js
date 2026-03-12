@@ -3,6 +3,7 @@ import ReactDOM from "react-dom";
 import { P } from "../theme/theme";
 import { useStore } from "../context/GlobalStore";
 import { useAuth } from "../auth/AuthContext";
+import { CloudImage } from "./CloudImage";
 
 const API = process.env.REACT_APP_API_URL || "http://localhost:5000/api";
 
@@ -221,12 +222,13 @@ export function ProductDetailSheet({ product: p, onClose }) {
                     {/* Image / Emoji */}
                     <div style={{ height: 200, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", position: "relative" }}>
                         {images.length > 0 ? (
-                            <img
+                            <CloudImage
                                 key={imgIdx}
                                 src={images[imgIdx]}
+                                width={600}
+                                height={600}
                                 alt={p.name}
                                 style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                                onError={e => { e.target.style.display = "none"; }}
                             />
                         ) : (
                             <span style={{ fontSize: 100, opacity: 0.85 }}>{p.emoji}</span>
@@ -246,7 +248,7 @@ export function ProductDetailSheet({ product: p, onClose }) {
                                         padding: 0, background: "none", cursor: "pointer",
                                     }}
                                 >
-                                    <img src={img} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                                    <CloudImage src={img} width={100} height={100} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                                 </button>
                             ))}
                         </div>

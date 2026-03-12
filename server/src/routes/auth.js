@@ -10,6 +10,7 @@ const { BadRequest, Unauthorized, Conflict } = require("../utils/errors");
 const logger = require("../utils/logger");
 const EmailService = require("../services/emailService");
 const SmsService = require("../services/smsService");
+const { addNotificationJob } = require("../services/queueService");
 const { OAuth2Client } = require("google-auth-library");
 
 const router = express.Router();
@@ -424,8 +425,8 @@ router.post("/send-otp",
 
             otpCooldowns.set(phone, Date.now());
 
-            // Dispatch OTP via Service (logs to console in dev_console mode)
-            await SmsService.sendOtp(phone, otp);
+            // Dispatch OTP via Notification Queue
+            await addNotificationJob("sms:sendOtp", { phone, otpCode: otp });
 
             res.json({ ok: true, message: "OTP sent successfully", expiresIn: 300 });
         } catch (err) { next(err); }
@@ -532,18 +533,14 @@ router.post("/send-email-verification", authenticate,
 
             const verifyUrl = `${EmailService.getFrontendUrl()}/verify-email?token=${token}`;
 
-            // Try sending via EmailService (with 12s race timeout)
-            try {
-                await Promise.race([
-                    EmailService.sendVerificationEmail(req.user.email, verifyUrl, req.user.name),
-                    new Promise((_, reject) => setTimeout(() => reject(new Error("SMTP Connection Timeout - Mail server unreachable")), 12000)),
-                ]);
-                res.json({ ok: true, message: "Verification email sent" });
-            } catch (err) {
-                logger.warn(`Failed to send verification email (${err.message}). Dev token fallback: ${verifyUrl}`);
-                console.log(`\n  Email verification URL for ${req.user.email}: ${verifyUrl}\n`);
-                return res.status(500).json({ ok: false, error: err.message || "Failed to send verification email. Please try again later." });
-            }
+            // Dispatch to Background Queue
+            await addNotificationJob("email:verification", {
+                to: req.user.email,
+                actionUrl: verifyUrl,
+                name: req.user.name
+            });
+            
+            res.json({ ok: true, message: "Verification email queued for background sending" });
         } catch (err) { next(err); }
     }
 );
@@ -596,17 +593,14 @@ router.post("/forgot-password",
                 await user.save();
 
                 const verifyUrl = `${EmailService.getFrontendUrl()}/reset-password?token=${token}`;
-                try {
-                    await Promise.race([
-                        EmailService.sendPasswordResetEmail(user.email, verifyUrl, user.name),
-                        new Promise((_, reject) => setTimeout(() => reject(new Error("SMTP Connection Timeout - Mail server unreachable")), 12000)),
-                    ]);
-                    res.json({ ok: true, message: "Recovery email sent." });
-                } catch (e) {
-                    logger.warn(`Recovery email failed for ${user.email} (${e.message})`);
-                    console.log(`\n  [DEV] Password Reset URL: ${verifyUrl}\n`);
-                    return res.status(500).json({ ok: false, error: e.message || "Failed to send recovery email. Please try again later." });
-                }
+                
+                await addNotificationJob("email:reset_password", {
+                    to: user.email,
+                    actionUrl: verifyUrl,
+                    name: user.name
+                });
+                
+                res.json({ ok: true, message: "Recovery email queued." });
             } else {
                 // Cost control limits apply to recovery too
                 const now = new Date();
@@ -622,11 +616,9 @@ router.post("/forgot-password",
                 await user.save();
 
                 const { otp } = await Otp.createOtp(identifier);
-                const smsStatus = await SmsService.sendOtp(identifier, otp);
-                if (smsStatus.devMode) {
-                    console.log(`\n  [DEV] Recovery OTP for ${identifier}: ${otp}\n`);
-                }
-                res.json({ ok: true, message: "Recovery OTP sent." });
+                await addNotificationJob("sms:sendOtp", { phone: identifier, otpCode: otp });
+                
+                res.json({ ok: true, message: "Recovery OTP queued." });
             }
         } catch (err) { next(err); }
     }

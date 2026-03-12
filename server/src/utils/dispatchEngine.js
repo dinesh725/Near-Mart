@@ -1,6 +1,8 @@
 const Order = require("../models/Order");
 const User = require("../models/User");
 const logger = require("./logger");
+const { getDistanceMatrix } = require("../services/googleMapsService");
+const redisClient = require("../config/redis");
 
 // Helper: Haversine distance in meters
 function haversineDistance(a, b) {
@@ -54,10 +56,31 @@ const triggerDispatch = async (app) => {
             let shortestDist = Infinity; // the math score
             let bestTrueDistance = Infinity; // the actual real-world meters
             let isBatchOpportunity = false;
+            let candidateList = [];
 
-            // Loop through online riders
-            for (const rider of onlineRiders) {
-                const riderId = rider._id.toString();
+            // ── Single Source of Truth (Redis GEO Clustering) ────────────
+            let searchPool = [];
+            let useRedisFallback = true;
+            try {
+                // Fetch rider IDs natively from Redis regardless of which Node node they connected to
+                const redisCandidates = await redisClient.geosearch(
+                    "riders:locations",
+                    "FROMLONLAT", storeLng, storeLat,
+                    "BYRADIUS", 10, "km",
+                    "ASC"
+                );
+                searchPool = redisCandidates;
+                useRedisFallback = false;
+            } catch (e) {
+                logger.warn("Redis GEOSEARCH failed dynamically falling back to Memory Maps for Dispatch.");
+                searchPool = onlineRiders;
+            }
+
+            // Loop through candidate riders
+            for (const item of searchPool) {
+                const riderId = useRedisFallback ? item._id.toString() : item;
+                const rider = onlineRiders.find(r => r._id.toString() === riderId);
+                if (!rider) continue;
 
                 if (order.rejectedByPartnerIds && order.rejectedByPartnerIds.some(id => id.toString() === riderId)) {
                     continue;
@@ -68,7 +91,15 @@ const triggerDispatch = async (app) => {
                 
                 if (activeCount >= maxActive) continue; // Full capacity
 
-                const liveLoc = liveRiders ? liveRiders.get(riderId) : null;
+                // ── Cross-Cluster Metadata ──────────────────────────────
+                let liveLoc = liveRiders ? liveRiders.get(riderId) : null;
+                if (!useRedisFallback) {
+                    try {
+                        const rawMeta = await redisClient.hget(`rider:${riderId}:meta`, "data");
+                        if (rawMeta) liveLoc = JSON.parse(rawMeta);
+                    } catch (e) {}
+                }
+
                 if (!liveLoc || liveLoc.batteryLevel < 0.1 || liveLoc.status !== "online") continue; // Needs GPS and Battery > 10%
 
                 // ── RIDER GPS FRESHNESS CHECK ──
@@ -80,17 +111,12 @@ const triggerDispatch = async (app) => {
                 if (activeCount > 0 && rider.activeOrderId) {
                     const existingOrder = await Order.findById(rider.activeOrderId);
                     if (existingOrder && existingOrder.storeId === order.storeId && ["READY_FOR_PICKUP", "RIDER_ASSIGNED"].includes(existingOrder.status)) {
-                        
-                        // Strict Proximity Check: Only batch if drop-off B is within 1.5km of drop-off A
                         if (order.dropLocation && existingOrder.dropLocation) {
                             const dropDiff = haversineDistance(
                                 { lat: order.dropLocation.lat, lng: order.dropLocation.lng },
                                 { lat: existingOrder.dropLocation.lat, lng: existingOrder.dropLocation.lng }
                             );
-                            
-                            if (dropDiff <= 1500) { // Max 1.5km detour allowed
-                                riderIsAtSameStore = true;
-                            }
+                            if (dropDiff <= 1500) riderIsAtSameStore = true;
                         }
                     }
                 }
@@ -101,6 +127,7 @@ const triggerDispatch = async (app) => {
                 );
 
                 if (riderIsAtSameStore) {
+                    // Instant batching match
                     bestRider = rider;
                     shortestDist = distToStore;
                     bestTrueDistance = distToStore;
@@ -108,20 +135,45 @@ const triggerDispatch = async (app) => {
                     break; 
                 }
 
-                // ── DISPATCH SCORING CALCULATION ──
-                // The lower the score, the better the match.
-                // Weight distance heavily, but add physical "penalty" meters for active payload load and stale GPS age.
                 if (distToStore <= 5000) {
-                    const idlePenalty = locationAgeSeconds * 5; // Adds perceived 5m per stale second
-                    const loadPenalty = activeCount * 800; // Adds perceived 800m per active order
-                    
-                    const dispatchScore = distToStore + idlePenalty + loadPenalty;
+                    const idlePenalty = locationAgeSeconds * 5; 
+                    const loadPenalty = activeCount * 800; 
+                    const baseScore = distToStore + idlePenalty + loadPenalty;
 
-                    // Compare calculated scores via perceived distance, but track true distance
+                    candidateList.push({
+                        rider,
+                        liveLoc,
+                        distToStore,
+                        idlePenalty,
+                        loadPenalty,
+                        baseScore
+                    });
+                }
+            }
+
+            if (!bestRider && candidateList.length > 0) {
+                // Phase-3: Sort by Haversine base score, slice Top 5
+                candidateList.sort((a, b) => a.baseScore - b.baseScore);
+                const topCandidates = candidateList.slice(0, 5);
+
+                // Fetch Real Road Network Distances for Top 5 constraints
+                const origins = topCandidates.map(c => ({ lat: c.liveLoc.lat, lng: c.liveLoc.lng }));
+                const destination = { lat: storeLat, lng: storeLng };
+                const matrixResults = await getDistanceMatrix(origins, destination);
+
+                // Find the specific winner based on Road Network Distance
+                for (let i = 0; i < topCandidates.length; i++) {
+                    const candidate = topCandidates[i];
+                    const matrixData = matrixResults[i];
+
+                    // Use real road distance for scoring, or fallback to haversine if API skipped
+                    const realDistToStore = matrixData.distance; 
+                    const dispatchScore = realDistToStore + candidate.idlePenalty + candidate.loadPenalty;
+
                     if (dispatchScore < shortestDist) {
-                        shortestDist = dispatchScore; // we evaluate based on score
-                        bestTrueDistance = distToStore;
-                        bestRider = rider;
+                        shortestDist = dispatchScore;
+                        bestTrueDistance = realDistToStore;
+                        bestRider = candidate.rider;
                     }
                 }
             }

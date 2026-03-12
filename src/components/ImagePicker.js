@@ -36,16 +36,35 @@ export function ImagePicker({ productName = "", currentUrl = "", onSelect, onClo
         setPreview(localUrl);
 
         try {
-            const formData = new FormData();
-            formData.append("image", file);
-
             const token = localStorage.getItem("nm_access_token");
+            
+            // 1. Fetch Cloudinary signature from our Node backend
+            const sigRes = await fetch(`${API_BASE}/upload/signature`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ folder: 'nearmart/products' })
+            });
+
+            const sigData = await sigRes.json();
+            if (!sigData.ok || !sigData.signature) {
+                throw new Error("Failed to get secure upload signature");
+            }
+
+            // 2. Upload directly from Browser memory to Cloudinary AWS CDN
+            const formData = new FormData();
+            formData.append("file", file);
+            formData.append("api_key", sigData.apiKey);
+            formData.append("timestamp", sigData.timestamp);
+            formData.append("signature", sigData.signature);
+            formData.append("folder", "nearmart/products");
 
             // Use XMLHttpRequest for progress tracking
             const result = await new Promise((resolve, reject) => {
                 const xhr = new XMLHttpRequest();
-                xhr.open("POST", `${API_BASE}/upload/image`);
-                if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+                xhr.open("POST", `https://api.cloudinary.com/v1_1/${sigData.cloudName}/image/upload`);
 
                 xhr.upload.onprogress = (e) => {
                     if (e.lengthComputable) {
@@ -56,13 +75,13 @@ export function ImagePicker({ productName = "", currentUrl = "", onSelect, onClo
                 xhr.onload = () => {
                     try {
                         const data = JSON.parse(xhr.responseText);
-                        if (xhr.status >= 200 && xhr.status < 300 && data.ok) {
+                        if (xhr.status >= 200 && xhr.status < 300 && data.secure_url) {
                             resolve(data);
                         } else {
-                            reject(new Error(data.error || "Upload failed"));
+                            reject(new Error(data.error?.message || "Cloudinary Upload failed"));
                         }
                     } catch {
-                        reject(new Error("Invalid response from server"));
+                        reject(new Error("Invalid response from Cloudinary"));
                     }
                 };
 
@@ -72,9 +91,9 @@ export function ImagePicker({ productName = "", currentUrl = "", onSelect, onClo
                 xhr.send(formData);
             });
 
-            // Use Cloudinary CDN URL
-            setPreview(result.url);
-            setSelected(result.url);
+            // Use Cloudinary CDN URL securely formatted
+            setPreview(result.secure_url);
+            setSelected(result.secure_url);
             setUploadProgress(100);
         } catch (err) {
             setError(err.message || "Upload failed");

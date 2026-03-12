@@ -7,6 +7,17 @@ const config = require("./config");
 const { generalLimiter } = require("./middleware/rateLimiter");
 const { AppError } = require("./utils/errors");
 const logger = require("./utils/logger");
+const Sentry = require("@sentry/node");
+const { nodeProfilingIntegration } = require("@sentry/profiling-node");
+
+Sentry.init({
+    dsn: process.env.SENTRY_DSN,
+    integrations: [
+        nodeProfilingIntegration(),
+    ],
+    tracesSampleRate: 1.0,
+    profilesSampleRate: 1.0,
+});
 
 // Route imports
 const authRoutes = require("./routes/auth");
@@ -105,6 +116,8 @@ app.use((req, res) => {
 });
 
 // ── Global Error Handler ──────────────────────────────────────────────────────
+Sentry.setupExpressErrorHandler(app);
+
 app.use((err, req, res, next) => {
     if (err instanceof AppError) {
         return res.status(err.statusCode).json({

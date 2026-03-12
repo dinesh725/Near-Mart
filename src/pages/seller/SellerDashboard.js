@@ -3,6 +3,7 @@ import { P } from "../../theme/theme";
 import { useAuth } from "../../auth/AuthContext";
 import { useStore } from "../../context/GlobalStore";
 import { fmtFull } from "../../utils/helpers";
+import { CloudImage } from "../../components/CloudImage";
 import { ImagePicker } from "../../components/ImagePicker";
 
 function Toast({ msg, icon, onDone }) {
@@ -563,7 +564,7 @@ export function SellerDashboard({ activeTab }) {
                             <div style={{ width: 48, height: 48, borderRadius: 10, overflow: "hidden", flexShrink: 0, background: P.surface, border: `1px solid ${P.border}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}
                                 onClick={() => setImgPickerTarget({ id: p.id, name: p.name, currentUrl: p.imageUrl })}>
                                 {p.imageUrl
-                                    ? <img src={p.imageUrl} alt={p.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={e => e.target.style.display = "none"} />
+                                    ? <CloudImage src={p.imageUrl} width={100} height={100} alt={p.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} className="product-card-img" />
                                     : <span style={{ fontSize: 24 }}>{p.emoji}</span>
                                 }
                             </div>
@@ -650,7 +651,7 @@ export function SellerDashboard({ activeTab }) {
                             <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", background: P.surface, borderRadius: 12, border: `1px solid ${P.border}` }}>
                                 <div style={{ width: 52, height: 52, borderRadius: 10, overflow: "hidden", flexShrink: 0, background: P.bg, border: `1px solid ${P.border}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
                                     {(modal.mode === "edit" && modal.product.imageUrl)
-                                        ? <img src={modal.product.imageUrl} alt="product" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                                        ? <CloudImage src={modal.product.imageUrl} width={100} height={100} alt="product" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                                         : <span style={{ fontSize: 26 }}>{modal.mode === "edit" ? modal.product.emoji : form.emoji || "🛒"}</span>
                                     }
                                 </div>

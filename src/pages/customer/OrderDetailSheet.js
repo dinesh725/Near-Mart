@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import ReactDOM from "react-dom";
 import { P } from "../../theme/theme";
 import api from "../../api/client";
+import { CloudImage } from "../../components/CloudImage";
 
 // ── Status Configuration ──────────────────────────────────────────────────────
 const STATUS_CONFIG = {
@@ -152,7 +153,7 @@ export function OrderDetailSheet({ order: initialOrder, onClose, onTrack, onCanc
                                                 border: `1px solid ${P.border}`,
                                             }}>
                                                 {item.imageUrl
-                                                    ? <img src={item.imageUrl} alt={item.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                                                    ? <CloudImage src={item.imageUrl} width={100} height={100} alt={item.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                                                     : <span style={{ fontSize: 24 }}>{item.emoji || "📦"}</span>
                                                 }
                                             </div>
@@ -613,7 +614,7 @@ function SupportIssueModal({ order, onClose }) {
                                                     {isSelected && "✓"}
                                                 </div>
                                                 <div style={{ display: "flex", alignItems: "center", background: P.card, padding: 6, borderRadius: 8, flexShrink: 0 }}>
-                                                    {item.imageUrl ? <img src={item.imageUrl} alt={item.name} style={{ width: 28, height: 28, objectFit: "cover", borderRadius: 4 }} /> : <span style={{ fontSize: 20 }}>📦</span>}
+                                                    {item.imageUrl ? <CloudImage src={item.imageUrl} width={50} height={50} alt={item.name} style={{ width: 28, height: 28, objectFit: "cover", borderRadius: 4 }} /> : <span style={{ fontSize: 20 }}>📦</span>}
                                                 </div>
                                                 <div style={{ flex: 1, fontSize: 14, fontWeight: 600 }}>{item.name}</div>
                                                 <div style={{ fontSize: 13, color: P.textMuted }}>x{item.qty}</div>
