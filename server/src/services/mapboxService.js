@@ -4,6 +4,7 @@
  */
 const config = require("../config");
 const logger = require("../utils/logger");
+const { haversine } = require("../utils/geo");
 
 const MAPBOX_BASE = "https://api.mapbox.com";
 
@@ -41,16 +42,7 @@ async function throttle() {
     lastRequestMs = Date.now();
 }
 
-// ── Haversine fallback (meters) ──────────────────────────────────────────────
-function haversine(a, b) {
-    const R = 6371e3;
-    const toRad = d => d * Math.PI / 180;
-    const dLat = toRad(b.lat - a.lat);
-    const dLng = toRad(b.lng - a.lng);
-    const s = Math.sin(dLat / 2) ** 2 +
-        Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
-    return R * 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1 - s));
-}
+
 
 // ── Get Route (traffic-aware) ────────────────────────────────────────────────
 async function getRoute(pickup, drop) {

@@ -48,5 +48,8 @@ warn("MAPBOX_ACCESS_TOKEN", "Mapbox maps & routing");
 warn("CLOUDINARY_CLOUD_NAME", "Image uploads");
 warn("CLOUDINARY_API_KEY", "Image uploads");
 warn("CLOUDINARY_API_SECRET", "Image uploads");
+warn("REDIS_URL", "Redis caching & queues");
+warn("SENTRY_DSN", "Error monitoring & profiling");
+warn("GOOGLE_MAPS_API_KEY", "Google Maps routing & ETA");
 
 module.exports = config;

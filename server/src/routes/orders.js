@@ -6,16 +6,9 @@ const User = require("../models/User");
 const { authenticate, authorize, requireVerification } = require("../middleware/auth");
 const { validate } = require("../middleware/validate");
 const { BadRequest, NotFound, Forbidden } = require("../utils/errors");
-// Helper: Haversine distance in KMS
-const haversineDistance = (coords1, coords2) => {
-    if (!coords1 || !coords2) return 0;
-    const toRad = x => (x * Math.PI) / 180;
-    const R = 6371; // km
-    const dLat = toRad(coords2.lat - coords1.lat);
-    const dLng = toRad(coords2.lng - coords1.lng);
-    const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(coords1.lat)) * Math.cos(toRad(coords2.lat)) * Math.sin(dLng / 2) ** 2;
-    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-};
+const redisClient = require("../config/redis");
+const logger = require("../utils/logger");
+const { haversineKm: haversineDistance, haversineStrict } = require("../utils/geo");
 const { notify } = require("../services/notificationService");
 const { generateRoute, calcDeliveryFee, reverseGeocode } = require("../services/geocoding");
 
@@ -628,16 +621,40 @@ router.patch("/:id/accept-delivery",
             const riderId = req.user._id;
             const now = new Date();
 
-            // Atomic lock: prevent double-accept race condition
+            // ── Strict Ownership Validation (Order-Sniping Security Fix) ────────
+            // Step 1: Read-only pre-flight check to return a precise error message
+            const preCheck = await Order.findById(id).select("status acceptedByPartnerId offeredToPartnerId");
+            if (!preCheck) {
+                return res.status(404).json({ ok: false, msg: "Order not found" });
+            }
+            if (preCheck.status !== ORDER_STATUS.READY_FOR_PICKUP) {
+                return res.status(400).json({ ok: false, msg: `Order is not available (status: ${preCheck.status})` });
+            }
+            if (preCheck.acceptedByPartnerId) {
+                return res.status(409).json({ ok: false, msg: "Order has already been claimed by another rider" });
+            }
+            if (!preCheck.offeredToPartnerId || preCheck.offeredToPartnerId.toString() !== riderId.toString()) {
+                logger.warn(`[SECURITY] Order sniping attempt by rider ${riderId} on order ${id} (offered to: ${preCheck.offeredToPartnerId})`);
+                return res.status(403).json({ ok: false, msg: "This order was not assigned to you by the dispatch engine" });
+            }
+
+            // Step 2: Atomic update — ONLY succeeds if dispatch engine assigned this exact rider
+            // The strict filter ensures no two simultaneous requests can both succeed
             const order = await Order.findOneAndUpdate(
-                { _id: id, status: ORDER_STATUS.READY_FOR_PICKUP, acceptedByPartnerId: null },
+                {
+                    _id: id,
+                    status: ORDER_STATUS.READY_FOR_PICKUP,
+                    acceptedByPartnerId: null,
+                    offeredToPartnerId: riderId           // Strict: must match exactly
+                },
                 {
                     $set: { acceptedByPartnerId: riderId, acceptedAt: now },
                     $push: { dispatchLog: { riderId, action: "assigned", timestamp: now } },
                 },
                 { new: true }
             );
-            if (!order) return res.status(400).json({ ok: false, msg: "Order no longer available (already claimed or wrong status)" });
+            // If null here, a simultaneous request won the race — not a snipe
+            if (!order) return res.status(409).json({ ok: false, msg: "Order was claimed simultaneously by another process. Please retry." });
 
             // Compute acceptance latency
             if (order.updatedAt) {
@@ -930,6 +947,15 @@ router.patch("/shift/end",
                     lastActivityAt: now,
                 },
             });
+
+            // ── Remove from Redis Routing (Security Fix) ──
+            try {
+                await redisClient.zrem("riders:locations", req.user._id.toString());
+                await redisClient.hdel(`rider:${req.user._id}:meta`, "data");
+            } catch (e) {
+                logger.warn(`Redis cleanup failed for rider ${req.user._id}`);
+            }
+
             res.json({ ok: true, msg: "Shift ended", shiftEndedAt: now });
         } catch (err) { next(err); }
     }
@@ -949,15 +975,8 @@ router.get("/batch/:batchId/optimized-route",
             if (orders.length === 0) return res.json({ ok: true, waypoints: [], orders: [] });
 
             // Greedy nearest-next algorithm
-            const haversineDist = (a, b) => {
-                if (!a?.lat || !b?.lat) return Infinity;
-                const R = 6371e3;
-                const toRad = d => d * Math.PI / 180;
-                const dLat = toRad(b.lat - a.lat);
-                const dLng = toRad(b.lng - a.lng);
-                const s = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
-                return R * 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1 - s));
-            };
+            // Greedy nearest-next algorithm using shared haversine
+            const haversineDist = haversineStrict;
 
             // Start from rider's current position or first pickup
             let current = orders[0].pickupLocation || { lat: 0, lng: 0 };

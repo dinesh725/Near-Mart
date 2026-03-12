@@ -3,17 +3,7 @@ const User = require("../models/User");
 const logger = require("./logger");
 const { getDistanceMatrix } = require("../services/googleMapsService");
 const redisClient = require("../config/redis");
-
-// Helper: Haversine distance in meters
-function haversineDistance(a, b) {
-    if (!a || !b) return Infinity;
-    const R = 6371e3;
-    const toRad = d => d * Math.PI / 180;
-    const dLat = toRad(b.lat - a.lat);
-    const dLng = toRad(b.lng - a.lng);
-    const s = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
-    return R * 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1 - s));
-}
+const { haversineStrict: haversineDistance } = require("./geo");
 
 let timeoutSweeper = null;
 let isDispatching = false; // Mutex lock

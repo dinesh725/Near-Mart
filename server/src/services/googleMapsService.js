@@ -4,6 +4,7 @@
  */
 const config = require("../config");
 const logger = require("../utils/logger");
+const { haversine } = require("../utils/geo");
 
 const GOOGLE_MAPS_BASE = "https://maps.googleapis.com/maps/api";
 
@@ -13,7 +14,6 @@ const CACHE_MAX = 500;
 const CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
 
 function cacheKey(a, b, type = "route") {
-    // Round to ~100m precision (3 decimal places) to maximize cache hits
     const aLat = parseFloat(a.lat).toFixed(3);
     const aLng = parseFloat(a.lng).toFixed(3);
     const bLat = parseFloat(b.lat).toFixed(3);
@@ -34,17 +34,6 @@ function cacheSet(key, data) {
         routeCache.delete(oldest);
     }
     routeCache.set(key, { data, ts: Date.now() });
-}
-
-// ── Haversine fallback (meters) ──────────────────────────────────────────────
-function haversine(a, b) {
-    const R = 6371e3;
-    const toRad = d => d * Math.PI / 180;
-    const dLat = toRad(b.lat - a.lat);
-    const dLng = toRad(b.lng - a.lng);
-    const s = Math.sin(dLat / 2) ** 2 +
-        Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
-    return R * 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1 - s));
 }
 
 // ── Throttle ─────────────────────────────────────────────────────────────────

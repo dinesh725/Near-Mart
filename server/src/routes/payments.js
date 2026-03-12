@@ -66,8 +66,8 @@ router.post("/checkout",
             const platformFeePerSeller = parseFloat((platformFeeTotal / sellerCount).toFixed(2));
             const discountPerSeller = Math.floor(discountTotal / sellerCount);
 
-            console.log("Incoming checkout headers:", Object.keys(req.headers));
-            console.log("Extracted Idemp-Key:", req.headers["idempotency-key"]);
+            logger.debug("Incoming checkout headers", { keys: Object.keys(req.headers) });
+            logger.debug("Extracted Idemp-Key", { key: req.headers["idempotency-key"] });
             const idempotencyKey = req.headers["idempotency-key"] || `chk_${Date.now()}_${crypto.randomBytes(4).toString("hex")}`;
             const paymentGroupId = `PG_${crypto.randomBytes(8).toString("hex")}`;
 

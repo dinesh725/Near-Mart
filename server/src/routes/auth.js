@@ -12,6 +12,7 @@ const EmailService = require("../services/emailService");
 const SmsService = require("../services/smsService");
 const { addNotificationJob } = require("../services/queueService");
 const { OAuth2Client } = require("google-auth-library");
+const redisClient = require("../config/redis");
 
 const router = express.Router();
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
@@ -128,6 +129,16 @@ router.post("/logout", authenticate, async (req, res, next) => {
     try {
         req.user.refreshToken = null;
         await req.user.save();
+
+        if (req.user.role === "delivery") {
+            try {
+                await redisClient.zrem("riders:locations", req.user._id.toString());
+                await redisClient.hdel(`rider:${req.user._id}:meta`, "data");
+            } catch (e) {
+                logger.warn(`Redis logout cleanup failed for rider ${req.user._id}`);
+            }
+        }
+
         res.json({ ok: true, message: "Logged out" });
     } catch (err) { next(err); }
 });

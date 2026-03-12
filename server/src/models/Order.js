@@ -157,6 +157,8 @@ orderSchema.index({ customerId: 1, status: 1 });
 orderSchema.index({ sellerId: 1, status: 1 });
 orderSchema.index({ deliveryPartnerId: 1, status: 1 });
 orderSchema.index({ createdAt: -1 });
+// Compound index for dispatch engine queries (Stabilization Patch)
+orderSchema.index({ status: 1, acceptedByPartnerId: 1, offeredToPartnerId: 1 });
 
 module.exports = mongoose.model("Order", orderSchema);
 module.exports.ORDER_STATUSES = ORDER_STATUSES;

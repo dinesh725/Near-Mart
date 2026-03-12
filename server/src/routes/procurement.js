@@ -7,13 +7,14 @@ const { authenticate, authorize } = require("../middleware/auth");
 const { validate } = require("../middleware/validate");
 const { NotFound } = require("../utils/errors");
 const { notify } = require("../services/notificationService");
+const logger = require("../utils/logger");
 
 const router = express.Router();
 
 // ── Create Procurement Request ────────────────────────────────────────────────
 router.post("/",
     authenticate, authorize("seller", "admin"),
-    (req, res, next) => { console.log("INCOMING PO PAYLOAD:", JSON.stringify(req.body, null, 2)); next(); },
+    (req, res, next) => { logger.debug("Incoming PO payload", { body: req.body }); next(); },
     body("items").isArray({ min: 1 }),
     body("items.*.productName").notEmpty(),
     body("items.*.qty").isInt({ min: 1 }),

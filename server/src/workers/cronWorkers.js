@@ -132,6 +132,15 @@ const setupCronWorkers = (app) => {
                     rider.isOnline = false;
                     rider.shiftEndedAt = now;
                     await rider.save();
+                    
+                    // Remove from Redis (Security Fix)
+                    try {
+                        await redisClient.zrem("riders:locations", rider._id.toString());
+                        await redisClient.hdel(`rider:${rider._id}:meta`, "data");
+                    } catch (e) {
+                        logger.warn(`Redis ghost cleanup failed for rider ${rider._id}`);
+                    }
+
                     logger.info(`[Queue] Rider ${rider._id} (${rider.name}) set offline due to inactivity`);
                     if (io) io.to(`delivery_${rider._id}`).emit("forceOffline", { reason: "Inactivity timeout (15 min)" });
                 }

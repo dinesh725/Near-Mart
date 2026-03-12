@@ -12,6 +12,7 @@ const { createAdapter } = require("@socket.io/redis-adapter");
 const redisClient = require("./config/redis");
 const DeliveryTrackingLog = require("./models/DeliveryTrackingLog");
 const Order = require("./models/Order");
+const { haversine } = require("./utils/geo");
 
 // ── App Init ──────────────────────────────────────────────────────────────────
 // ── Batch location log buffer ─────────────────────────────────────────────────
@@ -45,6 +46,10 @@ const start = async () => {
         const pubClient = redisClient.duplicate();
         const subClient = redisClient.duplicate();
 
+        // ── Redis Adapter Error Handlers (Stabilization Patch) ────────────
+        pubClient.on("error", (err) => logger.error("Redis pub adapter error", { error: err.message }));
+        subClient.on("error", (err) => logger.error("Redis sub adapter error", { error: err.message }));
+
         const io = new Server(server, {
             cors: {
                 origin: config.corsOrigin,
@@ -70,15 +75,7 @@ const start = async () => {
         // Periodic flush of location buffer
         setInterval(flushLocationBuffer, FLUSH_INTERVAL_MS);
 
-        // Haversine distance (meters)
-        function haversine(a, b) {
-            const R = 6371e3;
-            const toRad = d => d * Math.PI / 180;
-            const dLat = toRad(b.lat - a.lat);
-            const dLng = toRad(b.lng - a.lng);
-            const s = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
-            return R * 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1 - s));
-        }
+
 
         io.on("connection", (socket) => {
             logger.info(`⚡ Socket connected: ${socket.id}`);
@@ -100,22 +97,12 @@ const start = async () => {
                 logger.info(`Socket ${socket.id} joined delivery_pool`);
             });
 
-            // Removed old memory maps redeclarations from here
-            
-            // Haversine helper
-            const haversine = (loc1, loc2) => {
-                if (!loc1 || !loc2) return 0;
-                const toRad = x => (x * Math.PI) / 180;
-                const R = 6371e3; // meters
-                const dLat = toRad(loc2.lat - loc1.lat);
-                const dLng = toRad(loc2.lng - loc1.lng);
-                const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(loc1.lat)) * Math.cos(toRad(loc2.lat)) * Math.sin(dLng / 2) ** 2;
-                return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-            };
+
 
             socket.on("updateLocation", async (data) => {
                 if (data.orderId && data.location && data.deliveryPartnerId) {
                     const riderId = data.deliveryPartnerId;
+                    socket.riderId = riderId; // Bind to socket for disconnect cleanup
                     const now = Date.now();
                     const newLoc = data.location;
 
@@ -282,8 +269,18 @@ const start = async () => {
                 }
             });
 
-            socket.on("disconnect", () => {
+            socket.on("disconnect", async () => {
                 logger.info(`Socket disconnected: ${socket.id}`);
+                // ── Automatically Cleanup Riders From Redis ──
+                if (socket.riderId) {
+                    try {
+                        await redisClient.zrem("riders:locations", socket.riderId);
+                        // Do not delete meta yet since they might just be briefly reconnecting, 
+                        // geo-removal prevents dispatch indexing natively. 
+                    } catch (e) {
+                        logger.error(`Redis Disconnect cleanup failed for rider ${socket.riderId}`, { error: e.message });
+                    }
+                }
             });
         });
 

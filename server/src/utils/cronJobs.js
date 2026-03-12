@@ -11,7 +11,7 @@ const startCronJobs = (app) => {
             await addCronJobExec("cronJobs", { type: "unassignDeadAssignments" });
             await addCronJobExec("cronJobs", { type: "escalateStarvingOrders" });
             await addCronJobExec("cronJobs", { type: "offlineGhostRiders" });
-            await addCronJobExec("cronJobs", { type: "cleanupAbandonedCarts" });
+            // NOTE: cleanupAbandonedCarts runs on its own 5-min schedule in services/cronJobs.js
 
         } catch (error) {
             logger.error("[Cron Error] Failed to enqueue background tasks: " + error.message);
