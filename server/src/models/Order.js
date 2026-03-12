@@ -110,6 +110,18 @@ const orderSchema = new mongoose.Schema({
     estimatedArrivalTime: Date,
     distanceRemaining: Number, // km
     paymentMethod: { type: String, default: "Wallet" },
+    
+    // ── Phase 6: Financial State Machine ──────────────────────────
+    paymentStatus: { 
+        type: String, 
+        enum: ["PENDING_PAYMENT", "AUTHORIZED", "CAPTURED", "FAILED", "REFUNDED", "PARTIALLY_REFUNDED", "DISPUTED"], 
+        default: "PENDING_PAYMENT" 
+    },
+    escrowCapturedAt: { type: Date }, // When PENDING_PAYMENT -> CAPTURED
+    gatewayPaymentId: { type: String, index: true }, // Stripe/Razorpay Intent ID
+    paymentGroupId: { type: String, index: true }, // For multi-seller cart splits
+    disputeReason: { type: String },
+    
     flagged: { type: Boolean, default: false },
     cancelReason: { type: String },
     sellerNote: { type: String },
@@ -147,6 +159,8 @@ const orderSchema = new mongoose.Schema({
     refundStatus: { type: String, enum: ["none", "requested", "processing", "completed", "failed"], default: "none" },
     refundAmount: { type: Number, default: 0 },
     refundedAt: { type: Date },
+    // Phase-6C: Settlement Flag
+    isSettled: { type: Boolean, default: false } // Tracks T+2 maturation 
 }, { timestamps: true });
 
 orderSchema.methods.canTransitionTo = function (newStatus) {

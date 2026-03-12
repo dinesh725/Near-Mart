@@ -293,7 +293,27 @@ const start = async () => {
             startCronJobs(app);
             setupCronWorkers(app);
             setupNotificationWorkers();
-            startDispatchEngine(app);
+            startDispatchEngine(app); // Legacy fallback scanner
+
+            // ── Phase-5: Real-time BullMQ Dispatch Worker ──
+            const { setupDispatchWorker } = require("./workers/dispatchWorker");
+            setupDispatchWorker(app);
+
+            // ── Phase-6B: Real-time Payment Webhook Worker ──
+            const { setupPaymentWorker } = require("./workers/paymentWorker");
+            setupPaymentWorker(app);
+
+            // ── Phase-6B: Background Gateway Refund Worker ──
+            const { setupRefundWorker } = require("./workers/refundWorker");
+            setupRefundWorker(app);
+
+            // ── Phase-6C: Setup Withdrawals & Settlement Workers ──
+            const { setupPayoutWorker } = require("./workers/payoutWorker");
+            setupPayoutWorker(app);
+
+            const { setupSettlementWorker } = require("./workers/settlementWorker");
+            setupSettlementWorker(app);
+
             logger.info(`   Environment: ${config.nodeEnv}`);
             logger.info(`   CORS origin: ${config.corsOrigin}`);
             logger.info(`   Health check: http://${HOST}:${config.port}/api/health`);

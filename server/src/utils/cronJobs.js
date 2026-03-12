@@ -17,6 +17,15 @@ const startCronJobs = (app) => {
             logger.error("[Cron Error] Failed to enqueue background tasks: " + error.message);
         }
     });
+
+    // ── Phase-5: Every 5 Minutes: Snapshot Rider Durability ──
+    cron.schedule("*/5 * * * *", async () => {
+        try {
+            await addCronJobExec("cronJobs", { type: "snapshotRiderDurability" });
+        } catch (error) {
+            logger.error("[Cron Error] Failed to enqueue snapshot task: " + error.message);
+        }
+    });
 };
 
 module.exports = { startCronJobs };

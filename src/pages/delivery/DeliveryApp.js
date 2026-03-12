@@ -25,6 +25,7 @@ export function DeliveryApp({ activeTab }) {
     });
     const [searching, setSearching] = useState(false);
     const [currentOffer, setCurrentOffer] = useState(null);
+    const [offerTimeLeft, setOfferTimeLeft] = useState(0);
     const [activeOrder, setActiveOrder] = useState(null);
     const [availableOrders, setAvailableOrders] = useState([]);
     const [availableB2BOrders, setAvailableB2BOrders] = useState([]);
@@ -203,6 +204,28 @@ export function DeliveryApp({ activeTab }) {
     useEffect(() => {
         try { sessionStorage.setItem("nm_delivery_online", online ? "true" : "false"); } catch { /* ignore */ }
     }, [online]);
+
+    // Phase-5: Countdown Timer for Delivery Offers
+    useEffect(() => {
+        if (!currentOffer || !currentOffer.expiresAt) {
+            setOfferTimeLeft(0);
+            return;
+        }
+        
+        const updateTimer = () => {
+            const msLeft = new Date(currentOffer.expiresAt).getTime() - Date.now();
+            if (msLeft <= 0) {
+                setOfferTimeLeft(0);
+                setCurrentOffer(null); // Auto-close frontend if backend socket is late
+            } else {
+                setOfferTimeLeft(Math.floor(msLeft / 1000));
+            }
+        };
+
+        updateTimer();
+        const interval = setInterval(updateTimer, 1000);
+        return () => clearInterval(interval);
+    }, [currentOffer]);
 
     const handleGoOnline = () => {
         if (online) { setOnline(false); setToast({ msg: "You're now offline 🌙", icon: "😴" }); return; }
@@ -515,9 +538,20 @@ export function DeliveryApp({ activeTab }) {
                             <strong>{currentOffer.storeName}</strong> ({currentOffer.distanceToStoreMeters}m away)
                         </p>
                         <p style={{ color: P.success, fontSize: 22, fontWeight: 800, margin: "20px 0" }}>Expected: ₹{Math.round(currentOffer.total * 0.08) + 30}</p>
+                        
+                        <div style={{ marginBottom: 15 }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 5, color: offerTimeLeft <= 5 ? P.danger : P.text }}>
+                                <span>Accept within {offerTimeLeft}s</span>
+                                <span>{offerTimeLeft}s</span>
+                            </div>
+                            <div style={{ width: "100%", height: 6, background: P.border, borderRadius: 3, overflow: "hidden" }}>
+                                <div style={{ height: "100%", width: `${(offerTimeLeft / 15) * 100}%`, background: offerTimeLeft <= 5 ? P.danger : P.success, transition: "width 1s linear, background 0.3s" }} />
+                            </div>
+                        </div>
+
                         <div style={{ display: "flex", gap: 10, marginTop: 25 }}>
                             <button className="p-btn" style={{ flex: 1, background: "transparent", border: `2px solid ${P.danger}`, color: P.danger, fontSize: 15, fontWeight: 700 }} onClick={handleRejectOffer}>Reject</button>
-                            <button className="p-btn" style={{ flex: 2, background: P.success, color: "white", fontSize: 15, fontWeight: 800 }} onClick={handleAcceptOffer}>Accept Route</button>
+                            <button className="p-btn" style={{ flex: 2, background: offerTimeLeft <= 0 ? P.border : P.success, color: "white", fontSize: 15, fontWeight: 800 }} onClick={handleAcceptOffer} disabled={offerTimeLeft <= 0}>Accept Route</button>
                         </div>
                     </div>
                 </div>

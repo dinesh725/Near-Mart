@@ -34,6 +34,10 @@ const adminLogisticsRoutes = require("./routes/admin-logistics");
 const geocodingRoutes = require("./routes/geocoding");
 const vendorInventoryRoutes = require("./routes/vendorInventory");
 const vendorRoutes = require("./routes/vendors");
+const webhookRoutes = require("./routes/webhooks");
+const checkoutRoutes = require("./routes/checkout");
+const kycRoutes = require("./routes/kyc");
+const withdrawalRoutes = require("./routes/withdrawals");
 
 // Start tracking background jobs (OTP Resets)
 require("./services/cronJobs");
@@ -74,6 +78,9 @@ app.use(cors({
 // ── Compression ──────────────────────────────────────────────────────────────
 app.use(compression());
 
+// ── Phase-6B: Webhooks (Must be before express.json for raw body) ──
+app.use("/api/webhooks", webhookRoutes);
+
 // ── Parsing ───────────────────────────────────────────────────────────────────
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
@@ -109,6 +116,9 @@ app.use("/api/admin/logistics", adminLogisticsRoutes);
 app.use("/api/geocoding", geocodingRoutes);
 app.use("/api/vendor-inventory", vendorInventoryRoutes);
 app.use("/api/vendors", vendorRoutes);
+app.use("/api/checkout", checkoutRoutes);
+app.use("/api/kyc", kycRoutes);
+app.use("/api/withdrawals", withdrawalRoutes);
 
 // ── 404 Handler ───────────────────────────────────────────────────────────────
 app.use((req, res) => {

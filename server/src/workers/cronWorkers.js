@@ -144,6 +144,38 @@ const setupCronWorkers = (app) => {
                     logger.info(`[Queue] Rider ${rider._id} (${rider.name}) set offline due to inactivity`);
                     if (io) io.to(`delivery_${rider._id}`).emit("forceOffline", { reason: "Inactivity timeout (15 min)" });
                 }
+            } else if (type === "snapshotRiderDurability") {
+                // Phase-5: Snapshot Redis rider paths to MongoDB to survive Redis flush
+                try {
+                    // Extract all rider IDs from redis locations
+                    const redisLocations = await redisClient.geosearch(
+                        "riders:locations",
+                        "FROMLONLAT", 0, 0,
+                        "BYRADIUS", 20000, "km",
+                        "WITHCOORD"
+                    );
+
+                    if (redisLocations.length > 0) {
+                        const bulkOps = redisLocations.map(point => {
+                            const [lng, lat] = point[1];
+                            return {
+                                updateOne: {
+                                    filter: { _id: point[0] },
+                                    update: {
+                                        $set: {
+                                            "location.coordinates": [parseFloat(lng), parseFloat(lat)],
+                                            lastLocationUpdate: now
+                                        }
+                                    }
+                                }
+                            };
+                        });
+                        await User.bulkWrite(bulkOps);
+                        logger.info(`[Phase-5 Snapshot] Snapshotted ${bulkOps.length} rider coordinates to MongoDB.`);
+                    }
+                } catch (e) {
+                    logger.error(`[Phase-5 Snapshot] Failed durability snapshot: ${e.message}`);
+                }
             }
 
         } catch (error) {

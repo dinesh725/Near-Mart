@@ -81,6 +81,20 @@ const userSchema = new mongoose.Schema({
     loyaltyPoints: { type: Number, default: 0 },
     totalOrders: { type: Number, default: 0 },
     resolvedToday: { type: Number, default: 0 },
+    // ── Phase-6C: KYC & Payouts ──────────────────────────────────────
+    kycStatus: { 
+        type: String, 
+        enum: ['PENDING', 'SUBMITTED', 'VERIFIED', 'REJECTED'], 
+        default: 'PENDING' 
+    },
+    kycSubmittedAt: { type: Date },
+    kycVerifiedAt: { type: Date },
+    kycDocuments: [{
+        docType: { type: String, enum: ['AADHAAR', 'PAN', 'PASSPORT', 'GSTIN'] },
+        documentIdentifier: { type: String }, // Pre-signed cloud storage key
+        status: { type: String, enum: ['VERIFIED', 'REJECTED'] }
+    }],
+    payoutsEnabled: { type: Boolean, default: false } // Safety kill-switch
 }, { timestamps: true });
 
 // Hash password before save

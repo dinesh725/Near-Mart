@@ -11,6 +11,7 @@ const logger = require("../utils/logger");
 const { haversineKm: haversineDistance, haversineStrict } = require("../utils/geo");
 const { notify } = require("../services/notificationService");
 const { generateRoute, calcDeliveryFee, reverseGeocode } = require("../services/geocoding");
+const { processTransaction } = require("../services/ledgerService");
 
 const router = express.Router();
 
@@ -514,20 +515,15 @@ router.patch("/:id/reject",
                 throw new BadRequest(`Cannot reject order from status: ${order.status}`);
             }
 
-            // Perform Razorpay Partial Refund if already paid
-            if (order.paymentStatus === "paid" && order.paymentId && order.paymentId.startsWith("pay_")) {
-                const { refundPayment } = require("../services/paymentService");
-                try {
-                    // order.total cleanly holds only THIS seller's sub-order (subtotal + tax + delivery - discountShare)
-                    await refundPayment(order.paymentId, order.total);
-                    order.paymentStatus = "refunded";
-                    order.events.push({ status: "REJECTED", note: "Razorpay partial refund automated successfully" });
-                } catch (refundError) {
-                    const errorMsg = refundError.message || "Unknown gateway error";
-                    order.events.push({ status: "REJECTED", note: "Refund FAILED: " + errorMsg + " — Queued for Admin Retry" });
-                    const { notify } = require("../services/notificationService");
-                    await notify("admin", `🚨 Refund Failed for Order ${order._id} (₹${order.total}): ${errorMsg}`, "alert");
-                }
+            // ── Phase-6B: Background Gateway Refund Pipeline ──
+            if (order.paymentStatus === "CAPTURED" && order.gatewayPaymentId) {
+                const { addRefundJob } = require("../services/queueService");
+                
+                // Enqueue refund background job
+                await addRefundJob({ orderId: order._id, amountInPaise: Math.round(order.total * 100) });
+                
+                order.paymentStatus = "PARTIALLY_REFUNDED"; // Intermediate state until Gateway webhook confirms
+                order.events.push({ status: "REJECTED", note: "Refund Job Enqueued to Gateway network" });
             } else if (order.paymentStatus === "paid" && order.paymentId && order.paymentId.startsWith("wallet_")) {
                 // Wallet refund
                 const User = require("../models/User");
@@ -605,6 +601,15 @@ router.patch("/:id/ready",
 
             await notify("delivery", `Order ${order._id} ready for pickup`, "order");
             await notify("customer", `Your order is being packed!`, "update", order.customerId);
+
+            // ── Phase-5: Real-time Dispatch (Queue + Trigger) ──
+            try {
+                await redisClient.lpush("orders:pending", order._id.toString());
+                const { triggerDispatch } = require("../utils/dispatchEngine");
+                setImmediate(() => triggerDispatch(req.app));
+            } catch (e) {
+                logger.error(`Redis queue push failed: ${e.message}`);
+            }
 
             res.json({ ok: true, order });
         } catch (err) { next(err); }
@@ -704,6 +709,14 @@ router.patch("/:id/accept-delivery",
             rider.activeOrderId = rider.activeOrderIds[0];
             await rider.save();
 
+            // ── Phase-5: Redis Rider Grouping (Busy) ──
+            try {
+                await redisClient.srem("riders:available", riderId.toString());
+                await redisClient.sadd("riders:busy", riderId.toString());
+            } catch (e) {
+                logger.warn(`Redis grouping update failed for rider ${riderId}`);
+            }
+
             // Emit instant sync payloads
             for (let o of lockedOrders) {
                 // Instantly remove from all other riders' screens natively
@@ -774,15 +787,51 @@ router.patch("/:id/deliver",
             if (!order.canTransitionTo("DELIVERED"))
                 throw new BadRequest(`Cannot deliver from status: ${order.status}`);
 
+            // ── Phase-6: Delivery Synchronization Lock ──
+            const isCashOnDelivery = order.paymentMethod === "Cash";
+            if (!isCashOnDelivery && order.paymentStatus !== "CAPTURED") {
+                // To support legacy Phase-5 testing orders, we can also permit "paid" temporarily, but CAPTURED is required
+                if (order.paymentStatus !== "paid") {
+                    throw new BadRequest(`Cannot deliver unpaid order. Payment Status: ${order.paymentStatus}`);
+                }
+            }
+
             const deliverNow = new Date();
             order.status = "DELIVERED";
-            order.paymentStatus = "paid";
             order.deliveredAt = deliverNow;
             // Calculate delivery duration (pickup to delivery)
             if (order.pickedUpAt) {
                 order.deliveryDurationMs = deliverNow.getTime() - new Date(order.pickedUpAt).getTime();
             }
             await order.save();
+
+            // ── Phase-6: Escrow Wallet Settlement ──
+            if (!isCashOnDelivery && order.paymentStatus !== "REFUNDED" && order.paymentStatus !== "DISPUTED") {
+                try {
+                    const riderFee = order.deliveryFee || 0;
+                    const commission = (order.subtotal || 0) * 0.15; // 15% Comm block
+                    const sellerOwed = (order.subtotal || 0) - commission;
+                    const platformCut = commission + (order.platformFee || 0);
+
+                    // Force the escrow debit to exactly match the credits to obey the ledger rule
+                    const escrowDebit = riderFee + sellerOwed + platformCut;
+
+                    await processTransaction({
+                        idempotencyKey: `deliver_${order._id}_${Date.now()}`,
+                        orderId: order._id,
+                        type: "ESCROW_RELEASE",
+                        metadata: { details: "Order Delivery Payouts" }
+                    }, [
+                        { walletType: "ESCROW", ownerId: null, amount: -escrowDebit },
+                        { walletType: "RIDER", ownerId: req.user._id, amount: riderFee },
+                        { walletType: "SELLER", ownerId: order.sellerId, amount: sellerOwed },
+                        { walletType: "PLATFORM", ownerId: null, amount: platformCut }
+                    ]);
+                    logger.info(`[Ledger] Escrow Settlement completed for Order ${order._id}`);
+                } catch (e) {
+                    logger.error(`[Ledger] Escrow Settlement failed for Order ${order._id}: ${e.message}`);
+                }
+            }
 
             // Unlock rider
             const riderId = req.user._id || req.user.id;
@@ -791,10 +840,22 @@ router.patch("/:id/deliver",
                 if (rider.activeOrderIds) {
                     rider.activeOrderIds = rider.activeOrderIds.filter(id => id.toString() !== order._id.toString());
                     rider.activeOrderId = rider.activeOrderIds.length > 0 ? rider.activeOrderIds[0] : null;
+                    rider.resolvedToday = (rider.resolvedToday || 0) + 1;
+                    await rider.save();
+
+                    // ── Phase-5: Redis Rider Grouping (Available) ──
+                    if (rider.activeOrderIds.length === 0) {
+                        try {
+                            await redisClient.srem("riders:busy", req.user._id.toString());
+                            await redisClient.sadd("riders:available", req.user._id.toString());
+                        } catch (e) {
+                            logger.warn(`Redis grouping update failed for rider ${req.user._id}`);
+                        }
+                    }
                 } else {
                     rider.activeOrderId = null;
+                    await rider.save(); // Save if activeOrderIds was null but rider exists
                 }
-                await rider.save();
             }
 
             const io = req.app.get("io");
@@ -926,6 +987,15 @@ router.patch("/shift/start",
                     shiftEndedAt: null,
                 },
             });
+
+            // ── Phase-5: Redis Rider Grouping (Online/Available) ──
+            try {
+                await redisClient.sadd("riders:available", req.user._id.toString());
+                await redisClient.srem("riders:offline", req.user._id.toString());
+            } catch (e) {
+                logger.warn(`Redis state update failed for rider ${req.user._id}`);
+            }
+
             res.json({ ok: true, msg: "Shift started", shiftStartedAt: now });
         } catch (err) { next(err); }
     }
@@ -948,8 +1018,11 @@ router.patch("/shift/end",
                 },
             });
 
-            // ── Remove from Redis Routing (Security Fix) ──
+            // ── Remove from Redis Routing (Security Fix & Grouping) ──
             try {
+                await redisClient.srem("riders:available", req.user._id.toString());
+                await redisClient.srem("riders:busy", req.user._id.toString());
+                await redisClient.sadd("riders:offline", req.user._id.toString());
                 await redisClient.zrem("riders:locations", req.user._id.toString());
                 await redisClient.hdel(`rider:${req.user._id}:meta`, "data");
             } catch (e) {

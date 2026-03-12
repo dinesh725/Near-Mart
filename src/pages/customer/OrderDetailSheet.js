@@ -3,6 +3,7 @@ import ReactDOM from "react-dom";
 import { P } from "../../theme/theme";
 import api from "../../api/client";
 import { CloudImage } from "../../components/CloudImage";
+import socketManager from "../../utils/socketManager";
 
 // ── Status Configuration ──────────────────────────────────────────────────────
 const STATUS_CONFIG = {
@@ -50,6 +51,10 @@ export function OrderDetailSheet({ order: initialOrder, onClose, onTrack, onCanc
     const canReorder = ["DELIVERED", "CANCELLED", "REJECTED"].includes(order.status);
     const isCancelled = order.status === "CANCELLED" || order.status === "REJECTED";
 
+    // Phase-5 Real-time ETA State
+    const [etaSeconds, setEtaSeconds] = useState(null);
+    const [distanceMeters, setDistanceMeters] = useState(null);
+
     // Refresh order data
     useEffect(() => {
         if (!order._id) return;
@@ -60,6 +65,19 @@ export function OrderDetailSheet({ order: initialOrder, onClose, onTrack, onCanc
             } catch { }
         };
         refreshOrder();
+
+        // Join room to get live updates
+        const socket = socketManager.getSocket();
+        if (socket && order._id) {
+            socket.emit("joinOrderRoom", order._id);
+            socket.on("etaUpdate", (data) => {
+                setEtaSeconds(data.etaSeconds);
+                setDistanceMeters(data.distanceMeters);
+            });
+            return () => {
+                socket.off("etaUpdate");
+            };
+        }
     }, [order._id]);
 
     // ── Get tracking step index ───────────────────────────────────────────────
@@ -302,6 +320,15 @@ export function OrderDetailSheet({ order: initialOrder, onClose, onTrack, onCanc
                                         const isCurrent = currentStepIdx === idx;
                                         const event = order.events?.find(e => e.status === step.status);
 
+                                        let displayLabel = step.label;
+                                        if (step.status === "READY_FOR_PICKUP" && order.status === "READY_FOR_PICKUP") {
+                                            if (!order.deliveryPartnerId && !order.acceptedByPartnerId) {
+                                                displayLabel = "Searching for delivery partner...";
+                                            } else {
+                                                displayLabel = "Rider Assigned — Heading to Store";
+                                            }
+                                        }
+
                                         return (
                                             <div key={step.status} style={{ display: "flex", gap: 14, position: "relative" }}>
                                                 {/* Vertical line */}
@@ -334,15 +361,22 @@ export function OrderDetailSheet({ order: initialOrder, onClose, onTrack, onCanc
                                                         fontSize: 13,
                                                         color: isComplete ? P.text : P.textMuted,
                                                     }}>
-                                                        {step.label}
+                                                        {displayLabel}
                                                         {isCurrent && (
                                                             <span style={{
                                                                 marginLeft: 8, fontSize: 9, padding: "2px 8px",
-                                                                background: P.success + "20", color: P.success,
+                                                                background: `${P.success}20`, color: P.success,
                                                                 borderRadius: 10, fontWeight: 800,
                                                             }}>CURRENT</span>
                                                         )}
                                                     </div>
+                                                    
+                                                    {isCurrent && step.status === "OUT_FOR_DELIVERY" && etaSeconds && (
+                                                        <div style={{ color: P.primary, fontSize: 13, fontWeight: 700, marginTop: 4 }}>
+                                                            ETA: {Math.ceil(etaSeconds / 60)} min ({Math.round(distanceMeters)}m)
+                                                        </div>
+                                                    )}
+                                                    
                                                     {event && (
                                                         <div style={{ fontSize: 11, color: P.textMuted, marginTop: 2 }}>
                                                             {formatDateTime(event.at || event.timestamp)}

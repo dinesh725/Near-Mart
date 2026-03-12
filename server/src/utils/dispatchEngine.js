@@ -37,6 +37,17 @@ const triggerDispatch = async (app) => {
             riderLoad[r._id.toString()] = r.activeOrderIds ? r.activeOrderIds.length : 0;
         }
 
+        // ── Phase-5: N+1 Optimization (Batch Fetch Active Orders) ──
+        const activeOrderIdsToFetch = onlineRiders.map(r => r.activeOrderId).filter(Boolean);
+        const activeOrdersList = activeOrderIdsToFetch.length > 0 ? await Order.find({ _id: { $in: activeOrderIdsToFetch } }) : [];
+        const activeOrdersMap = new Map();
+        for (const o of activeOrdersList) {
+            activeOrdersMap.set(o._id.toString(), o);
+        }
+
+        // ── Phase-5: Redis N+1 Optimization (Local Meta Cache) ──
+        const riderMetaCache = new Map();
+
         for (const order of unassignedOrders) {
             if (!order.pickupLocation || !order.pickupLocation.coordinates) continue;
             const storeLat = order.pickupLocation.coordinates[1];
@@ -84,10 +95,17 @@ const triggerDispatch = async (app) => {
                 // ── Cross-Cluster Metadata ──────────────────────────────
                 let liveLoc = liveRiders ? liveRiders.get(riderId) : null;
                 if (!useRedisFallback) {
-                    try {
-                        const rawMeta = await redisClient.hget(`rider:${riderId}:meta`, "data");
-                        if (rawMeta) liveLoc = JSON.parse(rawMeta);
-                    } catch (e) {}
+                    if (riderMetaCache.has(riderId)) {
+                        liveLoc = riderMetaCache.get(riderId);
+                    } else {
+                        try {
+                            const rawMeta = await redisClient.hget(`rider:${riderId}:meta`, "data");
+                            if (rawMeta) {
+                                liveLoc = JSON.parse(rawMeta);
+                            }
+                        } catch (e) {}
+                        riderMetaCache.set(riderId, liveLoc);
+                    }
                 }
 
                 if (!liveLoc || liveLoc.batteryLevel < 0.1 || liveLoc.status !== "online") continue; // Needs GPS and Battery > 10%
@@ -99,7 +117,7 @@ const triggerDispatch = async (app) => {
                 // ── BATCHING PROXIMITY SAFEGUARDS ──
                 let riderIsAtSameStore = false;
                 if (activeCount > 0 && rider.activeOrderId) {
-                    const existingOrder = await Order.findById(rider.activeOrderId);
+                    const existingOrder = activeOrdersMap.get(rider.activeOrderId.toString());
                     if (existingOrder && existingOrder.storeId === order.storeId && ["READY_FOR_PICKUP", "RIDER_ASSIGNED"].includes(existingOrder.status)) {
                         if (order.dropLocation && existingOrder.dropLocation) {
                             const dropDiff = haversineDistance(
