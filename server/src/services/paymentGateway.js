@@ -1,19 +1,22 @@
-const Stripe = require('stripe');
-// Using a dummy key for testing/simulation if not provided
-const stripe = Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_dummy', {
-    maxNetworkRetries: 2,
-    timeout: 5000
-});
+const Razorpay = require('razorpay');
+const crypto = require('crypto');
 const logger = require("../utils/logger");
 
-const createPaymentIntent = async (amountInPaise, currency = 'inr', orderId, customerId) => {
+const razorpay = new Razorpay({
+    key_id: process.env.RAZORPAY_KEY_ID || 'rzp_test_dummy',
+    key_secret: process.env.RAZORPAY_KEY_SECRET || 'rzp_secret_dummy'
+});
+
+const createPaymentIntent = async (amountInPaise, currency = 'INR', orderId, customerId) => {
     try {
-        const intent = await stripe.paymentIntents.create({
+        const order = await razorpay.orders.create({
             amount: amountInPaise,
-            currency,
-            metadata: { orderId: orderId.toString(), customerId: customerId.toString() }
+            currency: currency.toUpperCase(),
+            receipt: orderId.toString(),
+            notes: { customerId: customerId.toString() }
         });
-        return { ok: true, id: intent.id, client_secret: intent.client_secret };
+        // We return client_secret here as the actual intent.id mapping to Razorpay order id to not break existing checkout APIs
+        return { ok: true, id: order.id, client_secret: order.id };
     } catch (e) {
         logger.error(`[Gateway] Intent Creation Failed: ${e.message}`);
         return { ok: false, error: 'Gateway unavailable. Please try again later.' };
@@ -22,21 +25,33 @@ const createPaymentIntent = async (amountInPaise, currency = 'inr', orderId, cus
 
 const verifyWebhookSignature = (rawBody, signatureHeader) => {
     try {
-        return stripe.webhooks.constructEvent(
-            rawBody, 
-            signatureHeader, 
-            process.env.STRIPE_WEBHOOK_SECRET || 'whsec_dummy'
-        );
+        const secret = process.env.RAZORPAY_WEBHOOK_SECRET || 'whsec_dummy';
+        const expectedSignature = crypto.createHmac('sha256', secret)
+            .update(rawBody.toString())
+            .digest('hex');
+            
+        if (expectedSignature !== signatureHeader) {
+            return null; // Don't match
+        }
+        
+        // Return parsed JSON representing structural event body
+        return JSON.parse(rawBody.toString());
     } catch (err) {
         logger.error(`[Gateway] Invalid Webhook Signature: ${err.message}`);
-        return null; // Return null on failure instead of crashing
+        return null;
     }
 };
 
 const createRefund = async (paymentIntentId, amountInPaise) => {
     try {
-        const refund = await stripe.refunds.create({
-            payment_intent: paymentIntentId,
+        // Fetch raw payments for exact physical refund execution bypassing Order 
+        const payments = await razorpay.orders.fetchPayments(paymentIntentId);
+        if (!payments || payments.items.length === 0) {
+           throw new Error("No physical payment nodes found for this intent.");
+        }
+        const paymentId = payments.items[0].id;
+        
+        const refund = await razorpay.payments.refund(paymentId, {
             amount: amountInPaise
         });
         return { ok: true, id: refund.id };

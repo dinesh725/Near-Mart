@@ -119,6 +119,7 @@ const orderSchema = new mongoose.Schema({
     },
     escrowCapturedAt: { type: Date }, // When PENDING_PAYMENT -> CAPTURED
     gatewayPaymentId: { type: String, index: true }, // Stripe/Razorpay Intent ID
+    paymentId: { type: String, index: true }, // Razorpay original payment ID used natively for refunds
     paymentGroupId: { type: String, index: true }, // For multi-seller cart splits
     disputeReason: { type: String },
     

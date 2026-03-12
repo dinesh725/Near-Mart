@@ -13,24 +13,34 @@ const setupPaymentWorker = (app) => {
         const exists = await Transaction.findOne({ gatewayEventId: eventId });
         if (exists) return logger.warn(`[Webhook Worker] Ignored Replay: ${eventId}`);
 
-        // Extract Intent ID correctly depending on the Stripe event root object
-        const intentId = eventType === 'charge.refunded' ? data.payment_intent : data.id;
-
-        const order = await Order.findOne({ gatewayPaymentId: intentId });
-        if (!order) throw new Error(`Order not found for Intent: ${intentId}`);
+        // Extract Intent ID correctly depending on the Razorpay event root object
+        let order;
+        if (eventType === 'refund.processed') {
+            order = await Order.findOne({ paymentId: data.payment_id });
+            if (!order) throw new Error(`Order not found for Refund Payment ID: ${data.payment_id}`);
+        } else {
+            const orderId = data.order_id || data.id; // Usually data.order_id for payments
+            order = await Order.findOne({ gatewayPaymentId: orderId });
+            if (!order) throw new Error(`Order not found for Razorpay Order: ${orderId}`);
+        }
 
         // State Machine Constraints
         const states = ['PENDING_PAYMENT', 'AUTHORIZED', 'CAPTURED', 'REFUNDED', 'FAILED'];
         const currentIndex = states.indexOf(order.paymentStatus);
 
-        if (eventType === 'payment_intent.succeeded') {
+        if (eventType === 'payment.captured' || eventType === 'order.paid') {
             // Guard 1: Event Regression
             if (currentIndex >= states.indexOf('CAPTURED')) {
                  return logger.warn(`[Webhook Worker] Ignored Out-Of-Order Succeeded event for Order ${order._id}`);
             }
 
+            // Save the exact payment ID for future refund lookups
+            if (data.id && data.id.startsWith('pay_')) {
+                 order.paymentId = data.id;
+            }
+
             // Guard 2: Amount Validation
-            const receivedAmount = data.amount_received / 100;
+            const receivedAmount = data.amount / 100;
             if (receivedAmount < order.total) { 
                 order.paymentStatus = 'PARTIALLY_REFUNDED';
                 order.flagged = true;
@@ -69,7 +79,7 @@ const setupPaymentWorker = (app) => {
             
             logger.info(`[Webhook Worker] CAPTURED & Escrowed Order ${order._id}`);
             
-        } else if (eventType === 'payment_intent.payment_failed') {
+        } else if (eventType === 'payment.failed') {
             order.paymentStatus = 'FAILED';
             order.status = 'CANCELLED';
             await order.save();
@@ -92,13 +102,13 @@ const setupPaymentWorker = (app) => {
             }
             logger.info(`[Webhook Worker] FAILED Payment for ${order._id}, released stock`);
             
-        } else if (eventType === 'charge.refunded') {
+        } else if (eventType === 'refund.processed') {
             // Secure Ledger Double Entry - Move funds from Escrow BACK to Customer Gateway
             await processTransaction({
                  idempotencyKey: `refund_${data.id}`,
                  orderId: order._id,
                  type: 'REFUND',
-                 gatewayRefundId: data.id, // Usually starts with re_
+                 gatewayRefundId: data.id, // Usually starts with rfnd_
                  gatewayEventId: eventId
             }, [
                  { walletType: 'ESCROW', ownerId: null, amount: -order.total }, 
