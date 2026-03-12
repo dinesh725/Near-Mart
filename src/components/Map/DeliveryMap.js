@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { GoogleMap, useJsApiLoader, Polyline, Marker } from '@react-google-maps/api';
 
 const GOOGLE_MAPS_KEY = process.env.REACT_APP_GOOGLE_MAPS_KEY || process.env.REACT_APP_MAPBOX_TOKEN || '';
@@ -105,6 +105,7 @@ const DeliveryMap = ({ pickupLocation, dropLocation, liveLocation, precalculated
         if (onRouteCalcRef.current) {
             onRouteCalcRef.current({ distance: dist, duration: dist / 4.5 });
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isLoaded, pickupLocation?.lat, dropLocation?.lat, precalculatedRoute]);
 
     const onLoad = useCallback((map) => {
