@@ -3,8 +3,7 @@ const router = express.Router();
 const mongoose = require('mongoose');
 const { body, validationResult } = require('express-validator');
 
-const authMiddleware = require('../middleware/authMiddleware');
-const roleGuard = require('../middleware/roleGuard');
+const { authenticate: authMiddleware, authorize: roleGuard } = require('../middleware/auth');
 const { idempotencyGuard } = require('../middleware/idempotencyGuard');
 
 const User = require('../models/User');
