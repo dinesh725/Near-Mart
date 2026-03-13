@@ -1,7 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const authMiddleware = require('../middleware/authMiddleware');
-const roleGuard = require('../middleware/roleGuard');
+const { authenticate: authMiddleware, authorize: roleGuard } = require('../middleware/auth');
 const { generateUploadUrl, generateReadUrl } = require('../services/kycService');
 
 router.get('/upload-url', authMiddleware, async (req, res) => {
