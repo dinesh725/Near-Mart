@@ -230,17 +230,8 @@ export function CheckoutFlow({ onClose, onSuccess }) {
             if (setBackendOrder && backendOrders[0]?._id) setBackendOrder(backendOrders[0]);
             clearCart();
 
-            const sumTotal = backendOrders.reduce((sum, o) => sum + o.total, 0);
-
-            setResult({
-                success: true,
-                order: backendOrders[0], // fallback legacy hook
-                orders: backendOrders,
-                message: paymentMethod === "wallet"
-                    ? `₹${sumTotal} deducted from wallet`
-                    : `₹${sumTotal} paid successfully`,
-                paymentMethod,
-            });
+            // Phase-9: Bypass legacy Result popup, jump directly to cinematic success
+            onSuccess?.(backendOrders);
 
         } catch (err) {
             setResult({
@@ -248,10 +239,9 @@ export function CheckoutFlow({ onClose, onSuccess }) {
                 message: err.message || "Payment failed. Please try again.",
                 canRetry: true,
             });
-        } finally {
             setStep(4);
         }
-    }, [user, selectedAddress, paymentMethod, cartItems, clearCart, setBackendOrder, openRazorpayCheckout, verifyPayment, placeOrderFn, idempotencyKey]);
+    }, [user, selectedAddress, paymentMethod, cartItems, clearCart, setBackendOrder, openRazorpayCheckout, verifyPayment, placeOrderFn, idempotencyKey, onSuccess]);
 
 
     const handleDone = () => {
