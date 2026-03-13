@@ -394,7 +394,7 @@ export function DeliveryApp({ activeTab }) {
             return;
         }
 
-    }, [liveLocation, currentOrder, haversineDistance, handleDelivered, stopTracking]);
+    }, [currentOrder]);
 
     const handleReportIssue = useCallback(async () => {
         if (!currentOrder) return;

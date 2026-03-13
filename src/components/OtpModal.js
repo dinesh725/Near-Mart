@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 
 const OTP_LENGTH = 4;
 const OTP_TIMEOUT_SECONDS = 180; // 3 minutes
@@ -34,7 +34,7 @@ const OtpModal = ({ isOpen, onSubmit, onCancel, digits = OTP_LENGTH, title = "En
         return () => clearInterval(timer);
     }, [isOpen, secondsLeft, onCancel]);
 
-    const handleChange = useCallback((index, value) => {
+    const handleChange = (index, value) => {
         if (!/^\d*$/.test(value)) return; // Only allow digits
         const newValues = [...values];
         newValues[index] = value.slice(-1); // Take last character only
@@ -50,13 +50,13 @@ const OtpModal = ({ isOpen, onSubmit, onCancel, digits = OTP_LENGTH, title = "En
         if (value && index === digits - 1 && newValues.every(v => v !== '')) {
             handleSubmit(newValues);
         }
-    }, [values, digits]);
+    };
 
-    const handleKeyDown = useCallback((index, e) => {
+    const handleKeyDown = (index, e) => {
         if (e.key === 'Backspace' && !values[index] && index > 0) {
             inputRefs.current[index - 1]?.focus();
         }
-    }, [values]);
+    };
 
     const handleSubmit = async (submitValues) => {
         const otp = (submitValues || values).join('');
