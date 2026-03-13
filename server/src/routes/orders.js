@@ -562,6 +562,15 @@ router.patch("/:id/accept-delivery",
                 // Conflicting assignment sync sent directly to THIS rider socket
                 io.to(req.headers["x-socket-id"]).emit("orderAssigned", o);
                 io.emit("orderLocked", { orderId: o._id, lockedBy: riderId });
+
+                // Phase-9: Notify customer that a rider has been assigned
+                // This enables the Order Command Center to activate the mini-map
+                io.to(`order_${o._id}`).emit("deliveryStatusUpdate", {
+                    orderId: o._id,
+                    status: "RIDER_ASSIGNED",
+                    riderName: req.user.name,
+                    riderId: riderId,
+                });
             }
 
             await notify("customer", `${req.user.name} is heading to pick up your order!`, "update", order.customerId);

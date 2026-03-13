@@ -10,6 +10,9 @@ import { TrackOrderModal } from "../../components/Map/TrackOrderModal";
 import { MultiSellerSheet } from "../../components/MultiSellerSheet";
 import { OrdersPage } from "./OrdersPage";
 import { PullToRefresh } from "../../components/PullToRefresh";
+import { OrderSuccessScreen } from "../../components/OrderSuccessScreen";
+import { OrderCommandCenter } from "../../components/OrderCommandCenter";
+import { FloatingOrderTracker } from "../../components/FloatingOrderTracker";
 import api from "../../api/client";
 
 // ── SKELETON LOADING ──────────────────────────────────────────────────────────
@@ -126,6 +129,11 @@ export function CustomerApp({ activeTab, setActiveTab }) {
     const [trackingOrder, setTrackingOrder] = useState(null);
     const [multiSellerData, setMultiSellerData] = useState(null); // { productName, variants }
     const [customerGps, setCustomerGps] = useState(null);
+
+    // ── Phase-9: New Order Tracking UX States ─────────────────────────
+    const [successScreenData, setSuccessScreenData] = useState(null); // { orders, paymentMethod }
+    const [commandCenterOrder, setCommandCenterOrder] = useState(null); // order object
+    const [floatingTrackerDismissed, setFloatingTrackerDismissed] = useState(false);
 
     const categories = ["All", ...new Set(products.map(p => p.category))];
 
@@ -256,20 +264,24 @@ export function CustomerApp({ activeTab, setActiveTab }) {
         setShowCheckout(true);
     }, [cartCount]);
 
-    // Called when checkout succeeds — sync real backend order, then open Orders tab
+    // Called when checkout succeeds — Phase-9: Show success screen → command center
     const handleCheckoutSuccess = useCallback((backendOrders) => {
         setShowCheckout(false);
         const singleOrder = backendOrders?.[0] || null;
         if (singleOrder) setBackendOrder(singleOrder);
         fetchOrders();
-        setActiveTab(2); // Navigate to Orders
 
-        if (backendOrders?.length === 1) {
-            setTrackingOrder(singleOrder);
-        } else {
-            setTrackingOrder(null);
+        // Phase-9: Show success animation, then command center; NOT the map
+        setSuccessScreenData({
+            orders: backendOrders,
+            paymentMethod: singleOrder?.paymentMethod || "razorpay",
+        });
+        // Enable floating tracker for this order
+        setFloatingTrackerDismissed(false);
+        if (window.__nm_setTrackedOrder && singleOrder) {
+            window.__nm_setTrackedOrder(singleOrder);
         }
-    }, [setBackendOrder, fetchOrders, setActiveTab]);
+    }, [setBackendOrder, fetchOrders]);
 
 
     const handleProductTap = useCallback(async (product) => {
@@ -686,6 +698,29 @@ export function CustomerApp({ activeTab, setActiveTab }) {
 
     const tabs = [<HomeTab />, <CartTab />, <OrdersTab />, <SupportTab />, <WalletTab />];
 
+    // Phase-9: Handle success screen completion → open command center
+    const handleSuccessComplete = useCallback(() => {
+        const orders = successScreenData?.orders;
+        setSuccessScreenData(null);
+        const singleOrder = orders?.[0] || null;
+        if (singleOrder) {
+            setCommandCenterOrder(singleOrder);
+        } else {
+            setActiveTab(2); // Fallback: go to orders tab
+        }
+    }, [successScreenData, setActiveTab]);
+
+    // Phase-9: Handle command center → open full map
+    const handleCommandCenterFullMap = useCallback((order) => {
+        setCommandCenterOrder(null);
+        setTrackingOrder(order);
+    }, []);
+
+    // Phase-9: Handle floating tracker tap → open command center
+    const handleFloatingTrackerTap = useCallback((order) => {
+        setCommandCenterOrder(order);
+    }, []);
+
     return (
         <div>
             {tabs[activeTab] || <HomeTab />}
@@ -708,7 +743,34 @@ export function CustomerApp({ activeTab, setActiveTab }) {
                 />
             )}
 
-            {/* Live Tracking Modal */}
+            {/* Phase-9: Success Screen (Stage 1) */}
+            {successScreenData && (
+                <OrderSuccessScreen
+                    orders={successScreenData.orders}
+                    paymentMethod={successScreenData.paymentMethod}
+                    onComplete={handleSuccessComplete}
+                />
+            )}
+
+            {/* Phase-9: Order Command Center (Stage 2) */}
+            {commandCenterOrder && (
+                <OrderCommandCenter
+                    orderId={commandCenterOrder._id || commandCenterOrder.id}
+                    initialOrder={commandCenterOrder}
+                    onClose={() => setCommandCenterOrder(null)}
+                    onViewFullMap={handleCommandCenterFullMap}
+                />
+            )}
+
+            {/* Phase-9: Floating Order Tracker (Stage 3) — persists across all tabs */}
+            {!floatingTrackerDismissed && !successScreenData && !commandCenterOrder && (
+                <FloatingOrderTracker
+                    onTap={handleFloatingTrackerTap}
+                    onDismiss={() => setFloatingTrackerDismissed(true)}
+                />
+            )}
+
+            {/* Live Tracking Modal (full map — only opened explicitly) */}
             {trackingOrder && (
                 <TrackOrderModal order={trackingOrder} onClose={() => setTrackingOrder(null)} />
             )}
