@@ -41,8 +41,13 @@ const verifySignature = (orderId, paymentId, signature) => {
 };
 
 // ── Verify Razorpay Webhook Signature ─────────────────────────────────────────
+// Phase-7: NEVER fall back to keySecret — they are different secrets
 const verifyWebhookSignature = (rawBody, receivedSignature) => {
-    const webhookSecret = config.razorpay.webhookSecret || config.razorpay.keySecret;
+    const webhookSecret = config.razorpay.webhookSecret;
+    if (!webhookSecret) {
+        logger.error("[SECURITY] RAZORPAY_WEBHOOK_SECRET is not configured — webhook verification will ALWAYS fail");
+        return false;
+    }
     const expected = crypto
         .createHmac("sha256", webhookSecret)
         .update(rawBody)

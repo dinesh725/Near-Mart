@@ -48,235 +48,20 @@ router.get("/available", authenticate, authorize("delivery"), async (req, res, n
     } catch (err) { next(err); }
 });
 
-// ── Create Order ──────────────────────────────────────────────────────────────
+// ── [PHASE-7] Legacy POST /orders — DISABLED ─────────────────────────────────
+// This route previously created orders WITHOUT payment processing, allowing
+// sellers to receive and act on unpaid orders. All order creation MUST now go
+// through POST /payments/checkout which enforces payment-before-notification.
 router.post("/",
-    authenticate, authorize("customer"), requireVerification,
-    body("items").isArray({ min: 1 }).withMessage("At least one item required"),
-    body("items.*.productId").notEmpty(),
-    body("items.*.qty").isInt({ min: 1 }),
-    body("address").trim().notEmpty().withMessage("Address is required"),
-    validate,
+    authenticate, authorize("customer"),
     async (req, res, next) => {
         try {
-            const { items, address, paymentMethod, dropLocation, sellerId } = req.body;
-
-            // 1. Resolve requested products & Group by Seller (Multi-Seller Cart Support)
-            const sellerGroups = {};
-            for (const item of items) {
-                const product = await Product.findById(item.productId);
-                if (!product) throw new BadRequest(`Product ${item.productId} not found`);
-
-                let effectivePrice = product.sellingPrice;
-                let availableStock = product.stock;
-                let finalVariant = undefined;
-                let finalAddOns = [];
-
-                if (item.selectedVariant) {
-                    const reqVariantId = item.selectedVariant.variantId || item.selectedVariant;
-                    const variant = product.variants?.find(v => v.variantId === reqVariantId || v.name === reqVariantId);
-                    if (!variant) throw new BadRequest(`Variant not found on ${product.name}`);
-                    if (variant.stock < item.qty) throw new BadRequest(`Variant ${variant.name} has insufficient stock`);
-                    effectivePrice = variant.price;
-                    availableStock = variant.stock;
-                    finalVariant = { variantId: variant.variantId, name: variant.name, price: variant.price };
-                }
-
-                if (item.selectedAddOns && Array.isArray(item.selectedAddOns)) {
-                    for (const addOnReq of item.selectedAddOns) {
-                        const reqAddOnId = addOnReq.addOnId || addOnReq;
-                        const addon = product.addOns?.find(a => a.addOnId === reqAddOnId || a.name === reqAddOnId);
-                        if (addon) {
-                            effectivePrice += addon.price;
-                            finalAddOns.push({ addOnId: addon.addOnId, name: addon.name, price: addon.price });
-                        } else {
-                            throw new BadRequest(`Add-on not found on ${product.name}`);
-                        }
-                    }
-                }
-
-                if (availableStock < item.qty) {
-                    throw new BadRequest(`Insufficient stock for ${product.name} ${finalVariant ? '('+finalVariant.name+')' : ''} (available: ${availableStock})`);
-                }
-
-                const sId = product.sellerId ? product.sellerId.toString() : "DEFAULT_SELLER";
-                if (!sellerGroups[sId]) {
-                    sellerGroups[sId] = { sellerId: product.sellerId, items: [], subtotal: 0 };
-                }
-
-                sellerGroups[sId].items.push({
-                    productId: product._id,
-                    name: product.name,
-                    emoji: product.emoji,
-                    imageUrl: product.imageUrl || "",
-                    qty: item.qty,
-                    price: effectivePrice,
-                    selectedVariant: finalVariant,
-                    selectedAddOns: finalAddOns
-                });
-                sellerGroups[sId].subtotal += (effectivePrice * item.qty);
-            }
-
-            // ── Drop location from request ───────────────────────────────────
-            let dropLoc = { lat: null, lng: null, address, type: "Point", coordinates: [] };
-            if (dropLocation?.lat && dropLocation?.lng) {
-                dropLoc = {
-                    type: "Point",
-                    coordinates: [dropLocation.lng, dropLocation.lat],
-                    lat: dropLocation.lat,
-                    lng: dropLocation.lng,
-                    address: dropLocation.address || address,
-                };
-                if (!dropLocation.address) {
-                    dropLoc.address = await reverseGeocode(dropLoc.lat, dropLoc.lng);
-                }
-            } else {
-                throw new BadRequest("Customer delivery coordinates (dropLocation) are required.");
-            }
-
-            const sellerCount = Object.keys(sellerGroups).length;
-            const deliveryFeePerSeller = 30;
-            const platformFeePerSeller = parseFloat((5 / sellerCount).toFixed(2));
-            
-            // Calculate global discount to split
-            let grandSubtotal = Object.values(sellerGroups).reduce((sum, g) => sum + g.subtotal, 0);
-            const discountTotal = grandSubtotal > 200 ? Math.round(grandSubtotal * 0.02) : 0;
-            const discountPerSeller = Math.floor(discountTotal / sellerCount);
-
-            let createdOrders = [];
-            let paymentGroupId = `GRP-${crypto.randomBytes(4).toString("hex").toUpperCase()}`;
-
-            // ── Fulfill Per Seller ─────────
-            for (const sId of Object.keys(sellerGroups)) {
-                const group = sellerGroups[sId];
-                
-                let store = await User.findById(group.sellerId).select("location storeName storeId name serviceRadius phone storePhone isOpen");
-                if (!store) throw new BadRequest(`Seller not found for some products in your cart.`);
-                if (!store.isOpen) throw new BadRequest(`${store.storeName || store.name} is currently closed.`);
-
-                let pickupLoc = null;
-                if (store.location && store.location.lat) {
-                    pickupLoc = {
-                        type: "Point",
-                        coordinates: store.location.coordinates || [store.location.lng, store.location.lat],
-                        lat: store.location.lat,
-                        lng: store.location.lng,
-                        address: store.location.address || `${store.storeName || store.name} Store`,
-                    };
-                }
-
-                if (!pickupLoc) throw new BadRequest(`Store ${store.storeName || store.name} lacks valid GPS coordinates.`);
-
-                // Verify Service Radius
-                const distKm = haversineDistance(dropLoc, pickupLoc) || 0;
-                const distMeters = distKm * 1000;
-                const radiusMeters = store.serviceRadius || 5000;
-
-                if (distMeters > radiusMeters || distKm > 20) {
-                    throw new BadRequest(`Your delivery address is outside the service zone of ${store.storeName || store.name} (${radiusMeters / 1000}km restriction).`);
-                }
-
-                let routeData = await generateRoute(pickupLoc, dropLoc);
-                const etaMs = Date.now() + (routeData.duration || 15) * 1000;
-                let estimatedArrivalTime = new Date(etaMs);
-
-                const groupTotal = group.subtotal + deliveryFeePerSeller + platformFeePerSeller - discountPerSeller;
-
-                // Batching setup for this specific store
-                let batchId = null;
-                const nearbyOrder = await Order.findOne({
-                    status: { $in: [ORDER_STATUS.PENDING, ORDER_STATUS.CONFIRMED] },
-                    sellerId: store._id,
-                    pickupLocation: {
-                        $near: {
-                            $geometry: { type: "Point", coordinates: pickupLoc.coordinates },
-                            $maxDistance: 500
-                        }
-                    }
-                }).sort({ createdAt: 1 });
-
-                if (nearbyOrder) {
-                    const dropDistance = haversineDistance(
-                        { lat: dropLoc.lat, lng: dropLoc.lng },
-                        { lat: nearbyOrder.dropLocation.coordinates[1], lng: nearbyOrder.dropLocation.coordinates[0] }
-                    );
-                    if (dropDistance <= 1500) {
-                        batchId = nearbyOrder.batchId || `BATCH-${Date.now().toString(36).toUpperCase()}-${Math.floor(Math.random() * 1000)}`;
-                        if (!nearbyOrder.batchId) {
-                            nearbyOrder.batchId = batchId;
-                            await nearbyOrder.save();
-                        }
-                    }
-                }
-
-                const order = await Order.create({
-                    customerId: req.user._id,
-                    customerName: req.user.name,
-                    customerPhone: req.user.phone || "",
-                    sellerId: store._id,
-                    storeId: store.storeId || String(store._id),
-                    sellerPhone: store.storePhone || store.phone || "",
-                    items: group.items,
-                    subtotal: group.subtotal,
-                    deliveryFee: deliveryFeePerSeller,
-                    platformFee: platformFeePerSeller,
-                    discountShare: discountPerSeller,
-                    total: groupTotal,
-                    address: dropLoc.address || address,
-                    paymentMethod: paymentMethod || "Online",
-                    paymentGroupId, // Link sub-orders together
-                    pickupLocation: pickupLoc,
-                    dropLocation: dropLoc,
-                    routePolyline: routeData?.polyline || null,
-                    batchId,
-                    estimatedArrivalTime,
-                    distanceRemaining: routeData?.distance || null,
-                });
-
-                createdOrders.push(order);
-                
-                // Deduct stock for this group
-                for (const item of group.items) {
-                    let updateQuery = { $inc: { stock: -item.qty } };
-                    
-                    if (item.selectedVariant && item.selectedVariant.variantId) {
-                        updateQuery = { $inc: { "variants.$[v].stock": -item.qty } };
-                        await Product.findOneAndUpdate(
-                            { _id: item.productId },
-                            updateQuery,
-                            { arrayFilters: [{ "v.variantId": item.selectedVariant.variantId }] }
-                        );
-                    } else if (item.selectedVariant && item.selectedVariant.name) {
-                        // Fallback to name if variantId somehow missing
-                        updateQuery = { $inc: { "variants.$[v].stock": -item.qty } };
-                        await Product.findOneAndUpdate(
-                            { _id: item.productId },
-                            updateQuery,
-                            { arrayFilters: [{ "v.name": item.selectedVariant.name }] }
-                        );
-                    } else {
-                        await Product.findByIdAndUpdate(item.productId, updateQuery);
-                    }
-
-                    const updated = await Product.findById(item.productId);
-                    if (updated && updated.stock < 10) {
-                        await notify("seller", `⚠ Low stock alert: ${updated.name} (${updated.stock} left)`, "alert", store._id);
-                    }
-                }
-
-                await notify("seller", `New order ${order._id} — ₹${groupTotal}`, "order", store._id);
-            }
-
-            const io = req.app.get("io");
-            if (io) {
-                for (const o of createdOrders) {
-                    io.emit("newOrder", { orderId: o._id, customerName: req.user.name, total: o.total });
-                }
-            }
-
-            await notify("customer", `Order placed successfully via ${paymentMethod || "Wallet"}`, "update", req.user._id);
-            await notify("admin", `New Multi-Seller Checkout from ${req.user.name}`, "info");
-
-            res.status(201).json({ ok: true, orders: createdOrders });
+            // Phase-7: All order creation must go through /payments/checkout
+            return res.status(410).json({
+                ok: false,
+                error: "This endpoint is deprecated. Use POST /api/payments/checkout instead.",
+                redirect: "/api/payments/checkout"
+            });
         } catch (err) { next(err); }
     }
 );
@@ -291,7 +76,10 @@ router.get("/", authenticate, async (req, res, next) => {
         let filter = {};
         switch (req.user.role) {
             case "customer": filter.customerId = req.user._id; break;
-            case "seller": /* all orders for the store */ break;
+            case "seller":
+                // Phase-7: Hide unpaid orders from seller dashboard
+                filter.status = { $nin: ["PENDING_PAYMENT"] };
+                break;
             case "delivery": filter.$or = [
                 { deliveryPartnerId: req.user._id },
                 { acceptedByPartnerId: req.user._id },
@@ -431,6 +219,11 @@ router.patch("/:id/confirm",
             if (!order.canTransitionTo("CONFIRMED"))
                 throw new BadRequest(`Cannot confirm from status: ${order.status}`);
 
+            // Phase-7: Payment gate — block seller action on unpaid orders
+            if (!order.isCOD() && !order.isPaymentConfirmed()) {
+                throw new BadRequest(`Cannot confirm order — payment not yet received (status: ${order.paymentStatus})`);
+            }
+
             order.status = "CONFIRMED";
             order.sellerId = req.user._id;
             order.storeName = req.user.storeName || req.user.name;
@@ -458,6 +251,11 @@ router.patch("/:id/prepare",
             if (!order) throw new NotFound("Order not found");
             if (!order.canTransitionTo("PREPARING"))
                 throw new BadRequest(`Cannot prepare from status: ${order.status}`);
+
+            // Phase-7: Payment gate
+            if (!order.isCOD() && !order.isPaymentConfirmed()) {
+                throw new BadRequest(`Cannot prepare order — payment not confirmed (status: ${order.paymentStatus})`);
+            }
 
             const prepTime = parseInt(req.body.prepTime) || 15;
             order.status = "PREPARING";
@@ -489,6 +287,12 @@ router.patch("/:id/accept",
             if (!order) throw new NotFound("Order not found");
             if (!order.canTransitionTo("CONFIRMED"))
                 throw new BadRequest(`Cannot confirm from status: ${order.status}`);
+
+            // Phase-7: Payment gate
+            if (!order.isCOD() && !order.isPaymentConfirmed()) {
+                throw new BadRequest(`Cannot accept order — payment not confirmed (status: ${order.paymentStatus})`);
+            }
+
             order.status = "CONFIRMED";
             order.sellerId = req.user._id;
             order.storeName = req.user.storeName || req.user.name;
@@ -587,6 +391,11 @@ router.patch("/:id/ready",
             if (!order) throw new NotFound();
             if (!order.canTransitionTo("READY_FOR_PICKUP"))
                 throw new BadRequest(`Cannot mark ready from status: ${order.status}`);
+
+            // Phase-7: Payment gate — final check before dispatch pipeline starts
+            if (!order.isCOD() && !order.isPaymentConfirmed()) {
+                throw new BadRequest(`Cannot dispatch order — payment not confirmed (status: ${order.paymentStatus})`);
+            }
 
             order.status = "READY_FOR_PICKUP";
             await order.save();
@@ -887,6 +696,73 @@ router.patch("/:id/cancel",
             const isOwner = order.customerId.toString() === req.user._id.toString();
             const canCancel = isOwner || ["seller", "admin"].includes(req.user.role);
             if (!canCancel) throw new Forbidden("Cannot cancel this order");
+
+            // ── Phase-7: Automatic Refund on Cancellation ──────────────────
+            const WalletTransaction = require("../models/WalletTransaction");
+            const Transaction = require("../models/Transaction");
+
+            if (order.isPaymentConfirmed()) {
+                // Check if wallet payment
+                if (order.paymentId && order.paymentId.startsWith("wallet_")) {
+                    // Instant wallet refund
+                    const customer = await User.findById(order.customerId);
+                    const updatedCustomer = await User.findByIdAndUpdate(
+                        order.customerId,
+                        { $inc: { walletBalance: order.total } },
+                        { new: true }
+                    );
+                    await WalletTransaction.create({
+                        userId: order.customerId, type: "credit", amount: order.total,
+                        category: "refund",
+                        balanceBefore: customer.walletBalance,
+                        balanceAfter: updatedCustomer.walletBalance,
+                        note: `Refund for cancelled order ${order._id}`,
+                    });
+                    order.paymentStatus = "refunded";
+                    order.refundStatus = "completed";
+                    order.refundAmount = order.total;
+                    order.refundedAt = new Date();
+                    order.events.push({ status: "CANCELLED", note: "Wallet refund completed" });
+                    logger.info(`[Cancel] Wallet refund ₹${order.total} for order ${order._id}`);
+
+                } else if (order.paymentId && !order.paymentId.startsWith("wallet_")) {
+                    // Razorpay gateway refund — async via queue
+                    const { addRefundJob } = require("../services/queueService");
+                    await addRefundJob({
+                        orderId: order._id,
+                        paymentId: order.paymentId,
+                        amountInPaise: Math.round(order.total * 100),
+                        reason: req.body.reason,
+                    });
+                    order.refundStatus = "processing";
+                    order.refundAmount = order.total;
+                    order.events.push({ status: "CANCELLED", note: "Gateway refund job enqueued" });
+                    logger.info(`[Cancel] Razorpay refund enqueued for order ${order._id}`);
+                }
+
+                // Handle hybrid: also refund wallet portion from Transaction record
+                const txn = await Transaction.findOne({ paymentId: order.paymentGroupId, status: "completed" });
+                if (txn && txn.method === "hybrid" && txn.walletAmount > 0) {
+                    const customer = await User.findById(order.customerId);
+                    // Calculate this sub-order's wallet share proportionally
+                    const walletShare = Math.round((order.total / txn.amount) * txn.walletAmount * 100) / 100;
+                    if (walletShare > 0) {
+                        const updatedCustomer = await User.findByIdAndUpdate(
+                            order.customerId,
+                            { $inc: { walletBalance: walletShare } },
+                            { new: true }
+                        );
+                        await WalletTransaction.create({
+                            userId: order.customerId, type: "credit", amount: walletShare,
+                            category: "refund",
+                            balanceBefore: customer.walletBalance,
+                            balanceAfter: updatedCustomer.walletBalance,
+                            note: `Hybrid wallet refund for cancelled order ${order._id}`,
+                        });
+                        order.events.push({ status: "CANCELLED", note: `Hybrid wallet portion ₹${walletShare} refunded` });
+                    }
+                }
+            }
 
             order.status = "CANCELLED";
             order.cancelReason = req.body.reason;
@@ -1235,5 +1111,135 @@ router.post("/:id/reorder",
     }
 );
 
+// ══════════════════════════════════════════════════════════════════════════════
+// ── PHASE-7: Return & Exchange Lifecycle ──────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ── Request Return (customer only, within 7 days of delivery) ─────────────────
+router.patch("/:id/request-return",
+    authenticate, authorize("customer"),
+    body("reason").trim().notEmpty().withMessage("Return reason is required"),
+    validate,
+    async (req, res, next) => {
+        try {
+            const order = await Order.findById(req.params.id);
+            if (!order) throw new NotFound("Order not found");
+            if (order.customerId.toString() !== req.user._id.toString())
+                throw new Forbidden("Cannot request return for this order");
+            if (!order.canTransitionTo("RETURN_REQUESTED"))
+                throw new BadRequest(`Cannot request return from status: ${order.status}`);
+
+            // 7-day return window
+            const deliveryDate = order.deliveredAt || order.updatedAt;
+            const daysSinceDelivery = (Date.now() - new Date(deliveryDate).getTime()) / (1000 * 60 * 60 * 24);
+            if (daysSinceDelivery > 7) {
+                throw new BadRequest("Return window expired. Returns are allowed within 7 days of delivery.");
+            }
+
+            order.status = "RETURN_REQUESTED";
+            order.returnStatus = "requested";
+            order.returnReason = req.body.reason;
+            order.returnRequestedAt = new Date();
+            order.events.push({ status: "RETURN_REQUESTED", note: `Customer requested return: ${req.body.reason}` });
+            await order.save();
+
+            await notify("seller", `↩ Return requested for Order #${order._id.toString().slice(-6)}: ${req.body.reason}`, "alert", order.sellerId);
+            await notify("admin", `Return requested: Order ${order._id}`, "alert");
+
+            res.json({ ok: true, order });
+        } catch (err) { next(err); }
+    }
+);
+
+// ── Approve Return (seller/admin) ─────────────────────────────────────────────
+router.patch("/:id/approve-return",
+    authenticate, authorize("seller", "admin"),
+    async (req, res, next) => {
+        try {
+            const order = await Order.findById(req.params.id);
+            if (!order) throw new NotFound("Order not found");
+            if (!order.canTransitionTo("RETURN_APPROVED"))
+                throw new BadRequest(`Cannot approve return from status: ${order.status}`);
+
+            order.status = "RETURN_APPROVED";
+            order.returnStatus = "approved";
+            order.returnApprovedAt = new Date();
+            order.events.push({ status: "RETURN_APPROVED", note: "Seller approved return" });
+            await order.save();
+
+            await notify("customer", `Your return request for Order #${order._id.toString().slice(-6)} has been approved! A rider will pick up the items.`, "update", order.customerId);
+            await notify("delivery", `Return pickup needed for Order ${order._id}`, "order");
+
+            res.json({ ok: true, order });
+        } catch (err) { next(err); }
+    }
+);
+
+// ── Pickup Return (delivery partner) ──────────────────────────────────────────
+router.patch("/:id/pickup-return",
+    authenticate, authorize("delivery"),
+    async (req, res, next) => {
+        try {
+            const order = await Order.findById(req.params.id);
+            if (!order) throw new NotFound("Order not found");
+            if (!order.canTransitionTo("RETURN_PICKED"))
+                throw new BadRequest(`Cannot pickup return from status: ${order.status}`);
+
+            order.status = "RETURN_PICKED";
+            order.returnStatus = "picked";
+            order.returnPickedAt = new Date();
+            order.events.push({ status: "RETURN_PICKED", note: "Rider picked up returned items" });
+
+            // ── Auto-trigger refund on return pickup ──
+            const WalletTransaction = require("../models/WalletTransaction");
+            if (order.paymentId && order.paymentId.startsWith("wallet_")) {
+                const customer = await User.findById(order.customerId);
+                const updatedCustomer = await User.findByIdAndUpdate(
+                    order.customerId,
+                    { $inc: { walletBalance: order.total } },
+                    { new: true }
+                );
+                await WalletTransaction.create({
+                    userId: order.customerId, type: "credit", amount: order.total,
+                    category: "refund",
+                    balanceBefore: customer.walletBalance,
+                    balanceAfter: updatedCustomer.walletBalance,
+                    note: `Return refund for order ${order._id}`,
+                });
+                order.paymentStatus = "refunded";
+                order.refundStatus = "completed";
+                order.refundAmount = order.total;
+                order.refundedAt = new Date();
+            } else if (order.paymentId) {
+                const { addRefundJob } = require("../services/queueService");
+                await addRefundJob({
+                    orderId: order._id,
+                    paymentId: order.paymentId,
+                    amountInPaise: Math.round(order.total * 100),
+                    reason: `Return: ${order.returnReason}`,
+                });
+                order.refundStatus = "processing";
+                order.refundAmount = order.total;
+            }
+
+            // Restore stock
+            for (const item of order.items) {
+                await Product.findByIdAndUpdate(item.productId, { $inc: { stock: item.qty } });
+            }
+
+            // Transition to RETURN_COMPLETED
+            order.status = "RETURN_COMPLETED";
+            order.returnStatus = "completed";
+            order.returnCompletedAt = new Date();
+            order.events.push({ status: "RETURN_COMPLETED", note: "Return completed — refund initiated" });
+            await order.save();
+
+            await notify("customer", `Return completed! Refund of ₹${order.total} is being processed.`, "success", order.customerId);
+            await notify("seller", `Return completed for Order #${order._id.toString().slice(-6)}`, "alert", order.sellerId);
+
+            res.json({ ok: true, order });
+        } catch (err) { next(err); }
+    }
+);
 
 module.exports = router;

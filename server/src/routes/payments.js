@@ -78,8 +78,18 @@ router.post("/checkout",
             if (existingTxn && existingTxn.status === "pending") {
                 throw new Conflict("A checkout with this idempotency key is already pending. Please complete or cancel it.");
             }
+            // Phase-7: Pre-validate payment eligibility BEFORE any mutations
+            const user = await User.findById(req.user._id);
+            if (paymentMethod === "wallet") {
+                if (user.walletBalance < grandTotal) {
+                    throw new BadRequest(`Insufficient wallet balance (₹${user.walletBalance}). Need ₹${grandTotal}`);
+                }
+            } else if (paymentMethod === "hybrid") {
+                // Hybrid: at minimum wallet + gateway must cover total
+                // No hard failure here — gateway will cover the remainder
+            }
 
-            // 2. Atomic Stock Decrement (Reservation)
+            // 2. Atomic Stock Decrement (Reservation) — AFTER payment pre-check
             for (const item of items) {
                 await Product.findByIdAndUpdate(item.productId, { $inc: { stock: -item.qty } });
             }
@@ -128,12 +138,10 @@ router.post("/checkout",
             let gatewayAmount = 0;
             let razorpayOrderId = null;
             let needsGatewayPayment = false;
-            const user = await User.findById(req.user._id);
+            // user already fetched above in pre-validation
 
             if (paymentMethod === "wallet") {
-                if (user.walletBalance < grandTotal) {
-                    throw new BadRequest(`Insufficient wallet balance (₹${user.walletBalance}). Need ₹${grandTotal}`);
-                }
+                // Balance already validated above — safe to deduct
                 walletDeducted = grandTotal;
                 const updatedUser = await User.findByIdAndUpdate(
                     req.user._id, { $inc: { walletBalance: -grandTotal, totalOrders: sellerCount } }, { new: true }
@@ -167,6 +175,18 @@ router.post("/checkout",
 
                 await notify("customer", `Orders placed! ₹${grandTotal} paid from wallet`, "payment", req.user._id);
 
+                // Phase-7: Real-time seller notification via Socket.IO
+                const io = req.app.get("io");
+                if (io) {
+                    const confirmedOrders = await Order.find({ paymentGroupId, status: "CONFIRMED" });
+                    for (const o of confirmedOrders) {
+                        io.emit("newOrder", { orderId: o._id, customerName: req.user.name, total: o.total });
+                        if (o.sellerId) {
+                            await notify("seller", `New paid order ₹${o.total} — ready to confirm!`, "order", o.sellerId);
+                        }
+                    }
+                }
+
             } else if (paymentMethod === "razorpay") {
                 gatewayAmount = grandTotal;
                 needsGatewayPayment = true;
@@ -191,20 +211,10 @@ router.post("/checkout",
                 walletDeducted = Math.min(user.walletBalance, grandTotal);
                 gatewayAmount = grandTotal - walletDeducted;
 
-                // Handle wallet portion securely, same as above
-                if (walletDeducted > 0) {
-                    const updatedUser = await User.findByIdAndUpdate(
-                        req.user._id, { $inc: { walletBalance: -walletDeducted } }, { new: true }
-                    );
-                    await WalletTransaction.create({
-                        userId: req.user._id, type: "debit", amount: walletDeducted,
-                        category: "order_payment", balanceBefore: user.walletBalance,
-                        balanceAfter: updatedUser.walletBalance,
-                        note: `Partial payment for Group ${paymentGroupId}`,
-                        razorpayOrderId: paymentGroupId
-                    });
-                }
-
+                // Phase-7: Crash-safe hybrid
+                // DO NOT deduct wallet when gateway payment is also needed.
+                // Wallet is RESERVED (tracked in Transaction) and only deducted
+                // after gateway capture via webhook/verify handler.
                 if (gatewayAmount > 0) {
                     needsGatewayPayment = true;
                     const rzOrder = await createRazorpayOrder(gatewayAmount, `group_${paymentGroupId}`, {
@@ -213,7 +223,21 @@ router.post("/checkout",
                     razorpayOrderId = rzOrder.id;
                     await Order.updateMany({ paymentGroupId }, { razorpayOrderId: rzOrder.id });
                 } else {
-                    await Order.updateMany({ paymentGroupId }, { status: "PENDING", paymentStatus: "paid", paymentId: `wallet_${Date.now()}` });
+                    // Full wallet cover — deduct immediately (same as pure wallet)
+                    const updatedUser = await User.findByIdAndUpdate(
+                        req.user._id, { $inc: { walletBalance: -walletDeducted } }, { new: true }
+                    );
+                    await WalletTransaction.create({
+                        userId: req.user._id, type: "debit", amount: walletDeducted,
+                        category: "order_payment", balanceBefore: user.walletBalance,
+                        balanceAfter: updatedUser.walletBalance,
+                        note: `Full wallet payment for Group ${paymentGroupId}`,
+                        razorpayOrderId: paymentGroupId
+                    });
+                    await Order.updateMany({ paymentGroupId }, {
+                        $set: { status: "CONFIRMED", paymentStatus: "paid", paymentId: `wallet_${Date.now()}` },
+                        $push: { events: { status: "CONFIRMED", note: "Hybrid wallet-only payment successful" } }
+                    });
                     await User.findByIdAndUpdate(req.user._id, { $inc: { totalOrders: sellerCount } });
                 }
 
@@ -318,6 +342,15 @@ router.post("/verify",
                 paymentGroupId, paymentId: razorpay_payment_id, total: totalGrand, orderCount: orders.length
             });
 
+            // Phase-7: Real-time seller notification via Socket.IO
+            const io = req.app.get("io");
+            if (io) {
+                const confirmedOrders = await Order.find({ razorpayOrderId: razorpay_order_id, status: "CONFIRMED" });
+                for (const o of confirmedOrders) {
+                    io.emit("newOrder", { orderId: o._id, customerName: o.customerName, total: o.total });
+                }
+            }
+
             // Refetch to return updated array
             const updatedOrders = await Order.find({ razorpayOrderId: razorpay_order_id });
             res.json({ ok: true, message: "Payment verified", orders: updatedOrders });
@@ -350,6 +383,23 @@ router.post("/webhook", express.raw({ type: "application/json" }), async (req, r
 
         const event = JSON.parse(rawBody);
         logger.info("Razorpay webhook event", { event: event.event, payloadId: event.payload?.payment?.entity?.id });
+
+        // Phase-7: Replay attack prevention — deduplicate by event ID
+        const WebhookEvent = require("../models/WebhookEvent");
+        const eventId = event.account_id ? `${event.account_id}_${event.event}_${event.payload?.payment?.entity?.id || Date.now()}` : `evt_${Date.now()}`;
+        try {
+            await WebhookEvent.create({
+                eventId,
+                eventType: event.event,
+                paymentId: event.payload?.payment?.entity?.id,
+            });
+        } catch (dupErr) {
+            if (dupErr.code === 11000) {
+                logger.warn("Webhook REPLAY blocked — duplicate event ID", { eventId });
+                return res.status(200).json({ ok: true, message: "Duplicate event — already processed" });
+            }
+            throw dupErr;
+        }
 
         // 2. Handle payment.captured — order paid successfully
         if (event.event === "payment.captured") {
@@ -408,6 +458,33 @@ async function handlePaymentCaptured(payment) {
         );
 
         await notify("customer", `Payment successful! ₹${grandTotal}`, "payment", orders[0].customerId);
+
+        // Phase-7: Deduct reserved wallet portion for hybrid payments
+        const txn = await Transaction.findOne({ paymentId: payment.id, status: "completed" });
+        if (txn && txn.method === "hybrid" && txn.walletAmount > 0) {
+            const customer = await User.findById(orders[0].customerId);
+            if (customer.walletBalance >= txn.walletAmount) {
+                const updatedCustomer = await User.findByIdAndUpdate(
+                    orders[0].customerId,
+                    { $inc: { walletBalance: -txn.walletAmount } },
+                    { new: true }
+                );
+                await WalletTransaction.create({
+                    userId: orders[0].customerId, type: "debit", amount: txn.walletAmount,
+                    category: "order_payment",
+                    balanceBefore: customer.walletBalance,
+                    balanceAfter: updatedCustomer.walletBalance,
+                    note: `Hybrid wallet deduction after gateway capture — Group ${paymentGroupId}`,
+                    razorpayOrderId: paymentGroupId,
+                });
+                logger.info("Hybrid wallet portion deducted post-capture", { walletAmount: txn.walletAmount, paymentGroupId });
+            }
+        }
+
+        // Phase-7: Real-time seller notification via Socket.IO
+        // Note: Socket.IO instance is not directly available in standalone functions.
+        // Seller notification was already sent above via notify().
+        // For socket, the /verify endpoint handles client-side real-time updates.
 
         logger.info("Webhook: group payment captured", { paymentGroupId, paymentId: payment.id, orderCount: orders.length });
     }
