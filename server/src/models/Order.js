@@ -179,6 +179,11 @@ const orderSchema = new mongoose.Schema({
     rejectionCount: { type: Number, default: 0 },
     failedAssignmentCount: { type: Number, default: 0 },
     escalationRequired: { type: Boolean, default: false },
+    // ── Dispatch Monitoring (Phase-8) ────────────────────────────────
+    offerCount: { type: Number, default: 0 },
+    retryCount: { type: Number, default: 0 },
+    dispatchStartTime: { type: Date },
+    currentDispatchRadius: { type: Number, default: 10 }, // km — adaptive expansion
     dispatchLog: [{
         riderId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
         action: { type: String },

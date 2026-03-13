@@ -5,6 +5,7 @@ import { useStore } from "../../context/GlobalStore";
 import socketManager from "../../utils/socketManager";
 import DeliveryMap from "../../components/Map/DeliveryMap";
 import useLiveLocation from "../../hooks/useLiveLocation";
+import OtpModal from "../../components/OtpModal";
 
 function Toast({ msg, icon, onDone }) {
     React.useEffect(() => { const t = setTimeout(onDone, 3500); return () => clearTimeout(t); }, [onDone]);
@@ -32,6 +33,7 @@ export function DeliveryApp({ activeTab }) {
     const [taskTypeTab, setTaskTypeTab] = useState("b2c"); // "b2c" | "b2b"
     const [toast, setToast] = useState(null);
     const [earnings, setEarnings] = useState({ today: 1240, week: 6820, deliveries: 12 });
+    const [otpModal, setOtpModal] = useState({ open: false, type: null, digits: 4, title: "" });
 
     // Local active order fallback for UI rendering
     const myActiveOrder = orders.find(o => o.riderId === user?.id && o.status === "OUT_FOR_DELIVERY");
@@ -372,26 +374,10 @@ export function DeliveryApp({ activeTab }) {
 
         // Phase 8: High-Value SECURE OTP Check for wholesale deliveries
         if (currentOrder.isB2B) {
-            const otp = window.prompt("SECURE DROP-OFF: Please enter the 6-digit OTP provided by the Seller to release this wholesale cargo.");
-            if (!otp) return;
-
-            const token = localStorage.getItem("nm_access_token");
-            try {
-                const res = await fetch(`${process.env.REACT_APP_API_URL || "http://localhost:5000/api"}/procurement/${currentOrder._id}/deliver`, {
-                    method: "PATCH",
-                    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-                    body: JSON.stringify({ otp })
-                });
-                const data = await res.json();
-                if (data.ok) {
-                    setToast({ msg: "Wholesale Delivery Complete!", icon: "🎉" });
-                    setEarnings(e => ({ today: e.today + currentOrder.total, week: e.week + currentOrder.total, deliveries: e.deliveries + 1 }));
-                    setActiveOrder(null);
-                    stopTracking();
-                } else {
-                    setToast({ msg: `OTP Rejected: ${data.error}`, icon: "❌" });
-                }
-            } catch (err) { setToast({ msg: "Network error on delivery.", icon: "❌" }); }
+            setOtpModal({
+                open: true, digits: 6, type: "b2b",
+                title: "Wholesale Delivery OTP",
+            });
             return;
         }
 
@@ -401,54 +387,18 @@ export function DeliveryApp({ activeTab }) {
         // B2C Secure Delivery OTP via Backend
         const token = localStorage.getItem("nm_access_token");
         if (token && currentOrder._id) {
-            const otp = window.prompt("SECURE DROP-OFF: Please enter the 4-digit Delivery OTP provided by the Customer.");
-            if (!otp) return;
-
-            try {
-                const res = await fetch(`${process.env.REACT_APP_API_URL || "http://localhost:5000/api"}/orders/${currentOrder._id}/deliver`, {
-                    method: "PATCH",
-                    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-                    body: JSON.stringify({ otp })
-                });
-                const data = await res.json();
-                if (!data.ok) {
-                    setToast({ msg: `Delivery Failed: ${data.error || "Invalid OTP"}`, icon: "❌" });
-                    return; // Halt dropoff
-                }
-            } catch (err) {
-                setToast({ msg: "Network error on delivery verification.", icon: "❌" });
-                return;
-            }
-        }
-
-        // Try socket geofence validation
-        if (socketRef.current?.connected) {
-            socketRef.current.emit("confirmDelivery", {
-                orderId: currentOrder._id || currentOrder.id,
-                dropLocation: dropLoc,
+            setOtpModal({
+                open: true, digits: 4, type: "b2c",
+                title: "Enter Delivery OTP",
             });
+            return;
         }
 
-        // Local fallback: haversine check (300m threshold)
-        if (liveLocation) {
-            const dist = haversineDistance(liveLocation, dropLoc);
-            if (dist <= 300) {
-                setGeofenceStatus(prev => ({ ...prev, delivery: { valid: true, distance: Math.round(dist) } }));
-                // Complete the delivery locally
-                handleDelivered();
-            } else {
-                setGeofenceStatus(prev => ({ ...prev, delivery: { valid: false, distance: Math.round(dist) } }));
-                setToast({ msg: `Too far from customer: ${Math.round(dist)}m`, icon: "📍" });
-            }
-        } else {
-            // No GPS — allow anyway for dev/demo
-            setGeofenceStatus(prev => ({ ...prev, delivery: { valid: true, distance: 0 } }));
-            handleDelivered();
-        }
     }, [liveLocation, currentOrder, haversineDistance, handleDelivered, stopTracking]);
 
     const handleReportIssue = useCallback(async () => {
         if (!currentOrder) return;
+        // Phase-8: Use a simple prompt for issue text (not OTP)
         const issue = window.prompt("REPORT ISSUE (e.g. Customer missing, vehicle breakdown, etc). This suspends your current delivery.");
         if (!issue) return;
 
@@ -733,11 +683,76 @@ export function DeliveryApp({ activeTab }) {
         </div>
     );
 
+    const handleOtpSubmit = async (otp) => {
+        const token = localStorage.getItem("nm_access_token");
+        if (otpModal.type === "b2b") {
+            try {
+                const res = await fetch(`${process.env.REACT_APP_API_URL || "http://localhost:5000/api"}/procurement/${currentOrder._id}/deliver`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+                    body: JSON.stringify({ otp })
+                });
+                const data = await res.json();
+                if (data.ok) {
+                    setToast({ msg: "Wholesale Delivery Complete!", icon: "🎉" });
+                    setEarnings(e => ({ today: e.today + currentOrder.total, week: e.week + currentOrder.total, deliveries: e.deliveries + 1 }));
+                    setActiveOrder(null);
+                    stopTracking();
+                    setOtpModal({ open: false });
+                    return true;
+                } else {
+                    return false; // Triggers retry in modal
+                }
+            } catch (err) {
+                throw new Error("Network error");
+            }
+        } else if (otpModal.type === "b2c") {
+            try {
+                const res = await fetch(`${process.env.REACT_APP_API_URL || "http://localhost:5000/api"}/orders/${currentOrder._id}/deliver`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+                    body: JSON.stringify({ otp })
+                });
+                const data = await res.json();
+                if (!data.ok) return false;
+                setOtpModal({ open: false });
+                // Continue with geofence validation
+                if (socketRef.current?.connected) {
+                    socketRef.current.emit("confirmDelivery", {
+                        orderId: currentOrder._id || currentOrder.id,
+                        dropLocation: currentOrder.dropLocation,
+                    });
+                }
+                if (liveLocation) {
+                    const dist = haversineDistance(liveLocation, currentOrder.dropLocation);
+                    if (dist <= 300) {
+                        handleDelivered();
+                    } else {
+                        setToast({ msg: `Too far from customer: ${Math.round(dist)}m`, icon: "📍" });
+                    }
+                } else {
+                    handleDelivered();
+                }
+                return true;
+            } catch (err) {
+                throw new Error("Network error");
+            }
+        }
+        return true;
+    };
+
     const tabContent = [renderMap, renderTasks, renderEarnings, renderSettings];
     return (
         <div>
             {tabContent[activeTab] ?? renderMap}
             {toast && <Toast msg={toast.msg} icon={toast.icon} onDone={() => setToast(null)} />}
+            <OtpModal
+                isOpen={otpModal.open}
+                digits={otpModal.digits || 4}
+                title={otpModal.title || "Enter OTP"}
+                onSubmit={handleOtpSubmit}
+                onCancel={() => setOtpModal({ open: false })}
+            />
         </div>
     );
 }

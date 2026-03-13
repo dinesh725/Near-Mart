@@ -77,7 +77,8 @@ router.get("/", authenticate, async (req, res, next) => {
         switch (req.user.role) {
             case "customer": filter.customerId = req.user._id; break;
             case "seller":
-                // Phase-7: Hide unpaid orders from seller dashboard
+                // Phase-8: Seller data isolation — enforce ownership
+                filter.sellerId = req.user._id;
                 filter.status = { $nin: ["PENDING_PAYMENT"] };
                 break;
             case "delivery": filter.$or = [
@@ -183,6 +184,7 @@ router.get("/stats/counts", authenticate, async (req, res, next) => {
     try {
         let matchFilter = {};
         if (req.user.role === "customer") matchFilter.customerId = req.user._id;
+        if (req.user.role === "seller") matchFilter.sellerId = req.user._id;
 
         const pipeline = [
             { $match: matchFilter },
@@ -219,6 +221,11 @@ router.patch("/:id/confirm",
             if (!order.canTransitionTo("CONFIRMED"))
                 throw new BadRequest(`Cannot confirm from status: ${order.status}`);
 
+            // Phase-8: Seller ownership guard
+            if (req.user.role === "seller" && order.sellerId?.toString() !== req.user._id.toString()) {
+                throw new Forbidden("This order belongs to a different seller");
+            }
+
             // Phase-7: Payment gate — block seller action on unpaid orders
             if (!order.isCOD() && !order.isPaymentConfirmed()) {
                 throw new BadRequest(`Cannot confirm order — payment not yet received (status: ${order.paymentStatus})`);
@@ -251,6 +258,11 @@ router.patch("/:id/prepare",
             if (!order) throw new NotFound("Order not found");
             if (!order.canTransitionTo("PREPARING"))
                 throw new BadRequest(`Cannot prepare from status: ${order.status}`);
+
+            // Phase-8: Seller ownership guard
+            if (req.user.role === "seller" && order.sellerId?.toString() !== req.user._id.toString()) {
+                throw new Forbidden("This order belongs to a different seller");
+            }
 
             // Phase-7: Payment gate
             if (!order.isCOD() && !order.isPaymentConfirmed()) {
@@ -288,6 +300,11 @@ router.patch("/:id/accept",
             if (!order.canTransitionTo("CONFIRMED"))
                 throw new BadRequest(`Cannot confirm from status: ${order.status}`);
 
+            // Phase-8: Seller ownership guard
+            if (req.user.role === "seller" && order.sellerId?.toString() !== req.user._id.toString()) {
+                throw new Forbidden("This order belongs to a different seller");
+            }
+
             // Phase-7: Payment gate
             if (!order.isCOD() && !order.isPaymentConfirmed()) {
                 throw new BadRequest(`Cannot accept order — payment not confirmed (status: ${order.paymentStatus})`);
@@ -317,6 +334,11 @@ router.patch("/:id/reject",
             // Allow rejection early on before it's shipped
             if (["OUT_FOR_DELIVERY", "DELIVERED", "CANCELLED", "REJECTED"].includes(order.status)) {
                 throw new BadRequest(`Cannot reject order from status: ${order.status}`);
+            }
+
+            // Phase-8: Seller ownership guard
+            if (req.user.role === "seller" && order.sellerId?.toString() !== req.user._id.toString()) {
+                throw new Forbidden("This order belongs to a different seller");
             }
 
             // ── Phase-6B: Background Gateway Refund Pipeline ──
@@ -392,12 +414,18 @@ router.patch("/:id/ready",
             if (!order.canTransitionTo("READY_FOR_PICKUP"))
                 throw new BadRequest(`Cannot mark ready from status: ${order.status}`);
 
+            // Phase-8: Seller ownership guard
+            if (req.user.role === "seller" && order.sellerId?.toString() !== req.user._id.toString()) {
+                throw new Forbidden("This order belongs to a different seller");
+            }
+
             // Phase-7: Payment gate — final check before dispatch pipeline starts
             if (!order.isCOD() && !order.isPaymentConfirmed()) {
                 throw new BadRequest(`Cannot dispatch order — payment not confirmed (status: ${order.paymentStatus})`);
             }
 
             order.status = "READY_FOR_PICKUP";
+            order.dispatchStartTime = new Date(); // Phase-8: Dispatch monitoring
             await order.save();
 
             const io = req.app.get("io");
@@ -614,32 +642,18 @@ router.patch("/:id/deliver",
             }
             await order.save();
 
-            // ── Phase-6: Escrow Wallet Settlement ──
+            // ── Phase-8: Escrow Wallet Settlement via Queue ──
             if (!isCashOnDelivery && order.paymentStatus !== "REFUNDED" && order.paymentStatus !== "DISPUTED") {
-                try {
-                    const riderFee = order.deliveryFee || 0;
-                    const commission = (order.subtotal || 0) * 0.15; // 15% Comm block
-                    const sellerOwed = (order.subtotal || 0) - commission;
-                    const platformCut = commission + (order.platformFee || 0);
-
-                    // Force the escrow debit to exactly match the credits to obey the ledger rule
-                    const escrowDebit = riderFee + sellerOwed + platformCut;
-
-                    await processTransaction({
-                        idempotencyKey: `deliver_${order._id}_${Date.now()}`,
-                        orderId: order._id,
-                        type: "ESCROW_RELEASE",
-                        metadata: { details: "Order Delivery Payouts" }
-                    }, [
-                        { walletType: "ESCROW", ownerId: null, amount: -escrowDebit },
-                        { walletType: "RIDER", ownerId: req.user._id, amount: riderFee },
-                        { walletType: "SELLER", ownerId: order.sellerId, amount: sellerOwed },
-                        { walletType: "PLATFORM", ownerId: null, amount: platformCut }
-                    ]);
-                    logger.info(`[Ledger] Escrow Settlement completed for Order ${order._id}`);
-                } catch (e) {
-                    logger.error(`[Ledger] Escrow Settlement failed for Order ${order._id}: ${e.message}`);
-                }
+                const { addSettlementJob } = require("../services/queueService");
+                await addSettlementJob({
+                    orderId: order._id.toString(),
+                    riderId: req.user._id.toString(),
+                    sellerId: order.sellerId?.toString(),
+                    deliveryFee: order.deliveryFee || 0,
+                    subtotal: order.subtotal || 0,
+                    platformFee: order.platformFee || 0,
+                });
+                logger.info(`[Ledger] Escrow Settlement enqueued for Order ${order._id}`);
             }
 
             // Unlock rider

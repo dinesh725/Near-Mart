@@ -5,8 +5,8 @@ const withdrawalSchema = new mongoose.Schema({
     walletId: { type: mongoose.Schema.Types.ObjectId, ref: 'Wallet', required: true },
     amount: { type: Number, required: true },
     currency: { type: String, default: 'INR' },
-    status: { 
-        type: String, 
+    status: {
+        type: String,
         enum: ['REQUESTED', 'MANUAL_REVIEW', 'PROCESSING', 'PAID', 'FAILED', 'CANCELLED'],
         default: 'REQUESTED'
     },

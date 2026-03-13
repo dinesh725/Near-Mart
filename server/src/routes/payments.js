@@ -11,8 +11,11 @@ const { validate } = require("../middleware/validate");
 const { BadRequest, NotFound, Conflict } = require("../utils/errors");
 const { createRazorpayOrder, verifySignature, verifyWebhookSignature, fetchPaymentStatus, fetchOrderStatus, refundPayment, distributeRevenue } = require("../services/paymentService");
 const { notify } = require("../services/notificationService");
+const StockReservation = require("../models/StockReservation");
 const config = require("../config");
 const logger = require("../utils/logger");
+
+const RESERVATION_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
 const router = express.Router();
 
@@ -30,12 +33,16 @@ router.post("/checkout",
         try {
             const { items, address, paymentMethod } = req.body;
 
-            // 1. Validate & Cluster items by Seller
+            // 1. Validate & Cluster items by Seller — BATCH FETCH (Phase-8 perf fix)
+            const productIds = items.map(i => i.productId);
+            const products = await Product.find({ _id: { $in: productIds } });
+            const productMap = new Map(products.map(p => [p._id.toString(), p]));
+
             const sellerGroups = {};
             let grandSubtotal = 0;
 
             for (const item of items) {
-                const product = await Product.findById(item.productId);
+                const product = productMap.get(item.productId.toString ? item.productId.toString() : item.productId);
                 if (!product) throw new BadRequest(`Product ${item.productId} not found`);
                 if (product.stock < item.qty) {
                     throw new BadRequest(`Insufficient stock for ${product.name} (available: ${product.stock})`);
@@ -51,6 +58,7 @@ router.post("/checkout",
                     productId: product._id, name: product.name,
                     emoji: product.emoji, imageUrl: product.imageUrl || "",
                     qty: item.qty, price: product.sellingPrice,
+                    selectedVariant: item.selectedVariant || undefined,
                 });
                 sellerGroups[sId].subtotal += itemTotal;
                 grandSubtotal += itemTotal;
@@ -80,18 +88,43 @@ router.post("/checkout",
             }
             // Phase-7: Pre-validate payment eligibility BEFORE any mutations
             const user = await User.findById(req.user._id);
+            const availableBalance = user.walletBalance - (user.reservedBalance || 0);
             if (paymentMethod === "wallet") {
-                if (user.walletBalance < grandTotal) {
-                    throw new BadRequest(`Insufficient wallet balance (₹${user.walletBalance}). Need ₹${grandTotal}`);
+                if (availableBalance < grandTotal) {
+                    throw new BadRequest(`Insufficient available balance (₹${availableBalance}). Need ₹${grandTotal}`);
                 }
             } else if (paymentMethod === "hybrid") {
                 // Hybrid: at minimum wallet + gateway must cover total
                 // No hard failure here — gateway will cover the remainder
             }
 
-            // 2. Atomic Stock Decrement (Reservation) — AFTER payment pre-check
+            // 2. Stock Reservation System (Phase-8) — reserve instead of permanent decrement
+            const reservations = [];
             for (const item of items) {
-                await Product.findByIdAndUpdate(item.productId, { $inc: { stock: -item.qty } });
+                // Atomic decrement with underflow protection
+                const updated = await Product.findOneAndUpdate(
+                    { _id: item.productId, stock: { $gte: item.qty } },
+                    { $inc: { stock: -item.qty } },
+                    { new: true }
+                );
+                if (!updated) {
+                    // Rollback previous reservations in this batch
+                    for (const prev of reservations) {
+                        await Product.findByIdAndUpdate(prev.productId, { $inc: { stock: prev.qty } });
+                        await StockReservation.findByIdAndUpdate(prev._id, { status: "CANCELLED" });
+                    }
+                    const p = productMap.get(item.productId.toString ? item.productId.toString() : item.productId);
+                    throw new BadRequest(`Stock no longer available for ${p?.name || item.productId}`);
+                }
+                const reservation = await StockReservation.create({
+                    productId: item.productId,
+                    qty: item.qty,
+                    paymentGroupId,
+                    selectedVariant: item.selectedVariant || undefined,
+                    status: "RESERVED",
+                    expiresAt: new Date(Date.now() + RESERVATION_TTL_MS),
+                });
+                reservations.push(reservation);
             }
 
             // 3. Create N sub-orders (PENDING_PAYMENT)
@@ -208,7 +241,7 @@ router.post("/checkout",
                 });
 
             } else if (paymentMethod === "hybrid") {
-                walletDeducted = Math.min(user.walletBalance, grandTotal);
+                walletDeducted = Math.min(availableBalance, grandTotal);
                 gatewayAmount = grandTotal - walletDeducted;
 
                 // Phase-7: Crash-safe hybrid
@@ -217,6 +250,10 @@ router.post("/checkout",
                 // after gateway capture via webhook/verify handler.
                 if (gatewayAmount > 0) {
                     needsGatewayPayment = true;
+                    // Phase-8: Reserve wallet amount (prevent double-spending)
+                    await User.findByIdAndUpdate(req.user._id, {
+                        $inc: { reservedBalance: walletDeducted }
+                    });
                     const rzOrder = await createRazorpayOrder(gatewayAmount, `group_${paymentGroupId}`, {
                         paymentGroupId, walletDeducted: walletDeducted.toString(),
                     });
@@ -256,12 +293,20 @@ router.post("/checkout",
                 }
             }
 
-            // Low stock alerts globally
+            // Low stock alerts — use already-fetched product map (Phase-8 perf fix)
             for (const item of items) {
-                const p = await Product.findById(item.productId);
-                if (p && p.stock < 10) {
-                    await notify("seller", `⚠ Low stock: ${p.name} (${p.stock} left)`, "alert");
+                const p = productMap.get(item.productId.toString ? item.productId.toString() : item.productId);
+                if (p && (p.stock - item.qty) < 10) {
+                    await notify("seller", `⚠ Low stock: ${p.name} (${p.stock - item.qty} left)`, "alert", p.sellerId);
                 }
+            }
+
+            // Phase-8: Confirm stock reservations on successful payment initiation
+            if (!needsGatewayPayment) {
+                await StockReservation.updateMany(
+                    { paymentGroupId, status: "RESERVED" },
+                    { $set: { status: "CONFIRMED" } }
+                );
             }
 
             logger.info("Group checkout processed", {
@@ -317,6 +362,31 @@ router.post("/verify",
                     $push: { events: { status: "CONFIRMED", note: "Razorpay payment verified via client callback" } }
                 }
             );
+
+            // Phase-8: Confirm stock reservations
+            await StockReservation.updateMany(
+                { paymentGroupId, status: "RESERVED" },
+                { $set: { status: "CONFIRMED" } }
+            );
+
+            // Phase-8: Commit hybrid wallet deduction on gateway success
+            const txn = await Transaction.findOne({ paymentId: paymentGroupId });
+            if (txn && txn.method === "hybrid" && txn.walletAmount > 0) {
+                const customer = await User.findById(orders[0].customerId);
+                const walletDeducted = txn.walletAmount;
+                const updatedCustomer = await User.findByIdAndUpdate(
+                    orders[0].customerId,
+                    { $inc: { walletBalance: -walletDeducted, reservedBalance: -walletDeducted } },
+                    { new: true }
+                );
+                await WalletTransaction.create({
+                    userId: orders[0].customerId, type: "debit", amount: walletDeducted,
+                    category: "order_payment",
+                    balanceBefore: customer.walletBalance,
+                    balanceAfter: updatedCustomer.walletBalance,
+                    note: `Hybrid wallet portion for Group ${paymentGroupId}`,
+                });
+            }
 
             await User.findByIdAndUpdate(orders[0].customerId, { $inc: { totalOrders: orders.length } });
 

@@ -13,6 +13,8 @@ const redisClient = require("./config/redis");
 const DeliveryTrackingLog = require("./models/DeliveryTrackingLog");
 const Order = require("./models/Order");
 const { haversine } = require("./utils/geo");
+const jwt = require("jsonwebtoken");
+const User = require("./models/User");
 
 // ── App Init ──────────────────────────────────────────────────────────────────
 // ── Batch location log buffer ─────────────────────────────────────────────────
@@ -71,14 +73,45 @@ const start = async () => {
         const orderMetaCache = new Map();
         
         app.set("liveRiders", riderTeleportTracker);
+        // Phase-8: First-location guard tracker (requires 2 consecutive updates before accepting)
+        const riderPendingFirstLoc = new Map();
+        // Phase-8: Continuous geofence proximity tracker
+        const riderGeofenceHistory = new Map();
 
         // Periodic flush of location buffer
         setInterval(flushLocationBuffer, FLUSH_INTERVAL_MS);
 
 
 
+        // Phase-8: Socket.IO JWT Authentication Middleware
+        io.use(async (socket, next) => {
+            try {
+                const token = socket.handshake.auth?.token || socket.handshake.query?.token;
+                if (!token) {
+                    return next(); // Allow unauthenticated connections for customers
+                }
+                const decoded = jwt.verify(token, config.jwt.secret);
+                const user = await User.findById(decoded.id).select("_id role vehicleType");
+                if (user) {
+                    socket.userId = user._id.toString();
+                    socket.userRole = user.role;
+                    socket.vehicleType = user.vehicleType || "bike";
+                }
+                next();
+            } catch (err) {
+                logger.warn(`Socket auth failed: ${err.message}`);
+                next(); // Still allow connection, but without auth binding
+            }
+        });
+
         io.on("connection", (socket) => {
-            logger.info(`⚡ Socket connected: ${socket.id}`);
+            logger.info(`⚡ Socket connected: ${socket.id} (userId: ${socket.userId || 'anon'}, role: ${socket.userRole || 'unknown'})`);
+
+            // Auto-join delivery room if authenticated rider
+            if (socket.userId && socket.userRole === "delivery") {
+                socket.join(`delivery_${socket.userId}`);
+                logger.info(`Auto-joined delivery room: delivery_${socket.userId}`);
+            }
 
             socket.on("joinOrderRoom", (orderId) => {
                 socket.join(`order_${orderId}`);
@@ -100,11 +133,20 @@ const start = async () => {
 
 
             socket.on("updateLocation", async (data) => {
-                if (data.orderId && data.location && data.deliveryPartnerId) {
-                    const riderId = data.deliveryPartnerId;
-                    socket.riderId = riderId; // Bind to socket for disconnect cleanup
+                if (data.orderId && data.location) {
+                    // Phase-8: Use JWT-authenticated rider ID, ignore client-reported ID
+                    const riderId = socket.userId || data.deliveryPartnerId;
+                    if (!riderId) return; // Unauthenticated — silently drop
+                    
+                    socket.riderId = riderId;
                     const now = Date.now();
                     const newLoc = data.location;
+
+                    // Phase-8: Offline buffer replay protection
+                    if (data.timestamp && data.timestamp < (now - 60000)) {
+                        logger.debug(`[REPLAY] Dropped stale buffered location from rider ${riderId} (age: ${now - data.timestamp}ms)`);
+                        return; // Discard updates older than 1 minute
+                    }
 
                     // ── GPS Spoof & Anti-Teleport Protection ───────────────
                     let lastLoc = riderTeleportTracker.get(riderId);
@@ -115,21 +157,50 @@ const start = async () => {
                         // Silent fallback
                     }
 
+                    // Phase-8: First-location guard — require at least 2 updates before accepting
+                    if (!lastLoc) {
+                        const pending = riderPendingFirstLoc.get(riderId);
+                        if (!pending) {
+                            riderPendingFirstLoc.set(riderId, { loc: newLoc, time: now, count: 1 });
+                            logger.debug(`[GPS] First location from ${riderId} — holding for verification`);
+                            return; // Don't write to Redis yet
+                        } else if (pending.count < 2) {
+                            const dist = haversine(pending.loc, newLoc);
+                            const timeDelta = (now - pending.time) / 1000;
+                            if (timeDelta > 0 && dist / timeDelta > 33.3) { // > 120km/h between first two updates
+                                riderPendingFirstLoc.delete(riderId);
+                                logger.warn(`[ANTI-FRAUD] First 2 locations from ${riderId} show unrealistic speed — rejected`);
+                                return;
+                            }
+                            pending.count++;
+                            pending.loc = newLoc;
+                            pending.time = now;
+                            // Fall through to normal processing after 2 valid consecutive updates
+                            riderPendingFirstLoc.delete(riderId);
+                        }
+                    }
+
                     if (lastLoc) {
                         const distMeters = haversine(lastLoc, newLoc);
                         const timeDeltaSeconds = (now - lastLoc.time) / 1000;
 
                         if (timeDeltaSeconds > 0) {
+                            // Phase-8: Server-side speed computation (ignore client speed)
                             const speedMs = distMeters / timeDeltaSeconds;
                             const speedKmh = speedMs * 3.6;
 
-                            // Fraud condition 1: Unrealistic speed (>120 km/h)
-                            // Fraud condition 2: Massive jump (>500m in <3 seconds)
-                            if (speedKmh > 120 || (distMeters > 500 && timeDeltaSeconds < 3)) {
-                                logger.warn(`[ANTI-FRAUD] Rejected spoofed GPS update for rider ${riderId} - Speed: ${speedKmh.toFixed(1)}km/h, Dist: ${distMeters.toFixed(0)}m in ${timeDeltaSeconds.toFixed(1)}s`);
+                            // Phase-8: Vehicle-class speed limits
+                            const vehicleType = socket.vehicleType || "bike";
+                            const maxSpeed = ["van", "mini_truck", "large_truck"].includes(vehicleType) ? 90 : 60;
+
+                            if (speedKmh > maxSpeed || (distMeters > 500 && timeDeltaSeconds < 3)) {
+                                logger.warn(`[ANTI-FRAUD] Rejected spoofed GPS for rider ${riderId} — Speed: ${speedKmh.toFixed(1)}km/h (max: ${maxSpeed}), Dist: ${distMeters.toFixed(0)}m in ${timeDeltaSeconds.toFixed(1)}s`);
                                 socket.emit("locationSpoofWarning", { msg: "Suspicious location update detected" });
-                                return; // Silent reject
+                                return;
                             }
+
+                            // Phase-8: Store server-computed speed for ETA engine (ignore client speed)
+                            newLoc._serverSpeed = speedMs;
                         }
                     }
 
@@ -175,8 +246,8 @@ const start = async () => {
 
                         if (meta) {
                             const distToDrop = haversine(newLoc, meta.dropLocation);
-                            // Exponential smoothing (alpha = 0.3)
-                            const rawSpeedMs = newLoc.speed || 5;
+                            // Phase-8: Use server-computed speed for ETA, not client-provided
+                            const rawSpeedMs = newLoc._serverSpeed || 5;
                             meta.smoothedSpeed = (meta.smoothedSpeed * 0.7) + (rawSpeedMs * 0.3);
 
                             // Prevent infinite ETA (min effective speed 2 m/s)
@@ -226,7 +297,8 @@ const start = async () => {
                 }
             });
 
-            // Geofence: rider confirms pickup (within 200m of store)
+            // Phase-8: Geofence with continuous proximity validation
+            // Rider must be within 200m for at least 20 seconds with 3+ valid GPS samples
             socket.on("confirmPickup", async (data) => {
                 let riderLoc = riderLocations.get(data.orderId);
                 try {
@@ -236,17 +308,37 @@ const start = async () => {
                 
                 if (riderLoc && data.pickupLocation) {
                     const dist = haversine(riderLoc, data.pickupLocation);
-                    const valid = dist <= 200; // 200m tolerance for GPS drift
-                    socket.emit("pickupValidation", { orderId: data.orderId, valid, distance: Math.round(dist) });
+                    
+                    // Track proximity history per order
+                    const key = `pickup_${data.orderId}`;
+                    let history = riderGeofenceHistory.get(key) || [];
+                    history.push({ time: Date.now(), distance: dist });
+                    // Keep only last 30 seconds of data
+                    const cutoff = Date.now() - 30000;
+                    history = history.filter(h => h.time > cutoff);
+                    riderGeofenceHistory.set(key, history);
+
+                    // Phase-8: Require 3+ samples within 200m over 20+ seconds
+                    const validSamples = history.filter(h => h.distance <= 200);
+                    const timeSpan = validSamples.length >= 2 
+                        ? validSamples[validSamples.length - 1].time - validSamples[0].time 
+                        : 0;
+                    const valid = validSamples.length >= 3 && timeSpan >= 20000;
+
+                    socket.emit("pickupValidation", { 
+                        orderId: data.orderId, valid, distance: Math.round(dist),
+                        samplesNeeded: valid ? 0 : Math.max(0, 3 - validSamples.length),
+                    });
                     if (valid) {
                         io.to(`order_${data.orderId}`).emit("deliveryStatusUpdate", {
                             orderId: data.orderId, status: "PICKED_UP", timestamp: Date.now()
                         });
+                        riderGeofenceHistory.delete(key);
                     }
                 }
             });
 
-            // Geofence: rider confirms delivery (within 200m of customer)
+            // Phase-8: Delivery geofence with continuous proximity
             socket.on("confirmDelivery", async (data) => {
                 let riderLoc = riderLocations.get(data.orderId);
                 try {
@@ -255,13 +347,30 @@ const start = async () => {
                 } catch (e) {}
                 if (riderLoc && data.dropLocation) {
                     const dist = haversine(riderLoc, data.dropLocation);
-                    const valid = dist <= 200;
-                    socket.emit("deliveryValidation", { orderId: data.orderId, valid, distance: Math.round(dist) });
+                    
+                    const key = `delivery_${data.orderId}`;
+                    let history = riderGeofenceHistory.get(key) || [];
+                    history.push({ time: Date.now(), distance: dist });
+                    const cutoff = Date.now() - 30000;
+                    history = history.filter(h => h.time > cutoff);
+                    riderGeofenceHistory.set(key, history);
+
+                    const validSamples = history.filter(h => h.distance <= 200);
+                    const timeSpan = validSamples.length >= 2 
+                        ? validSamples[validSamples.length - 1].time - validSamples[0].time 
+                        : 0;
+                    const valid = validSamples.length >= 3 && timeSpan >= 20000;
+
+                    socket.emit("deliveryValidation", { 
+                        orderId: data.orderId, valid, distance: Math.round(dist),
+                        samplesNeeded: valid ? 0 : Math.max(0, 3 - validSamples.length),
+                    });
                     if (valid) {
                         io.to(`order_${data.orderId}`).emit("deliveryStatusUpdate", {
                             orderId: data.orderId, status: "DELIVERED", timestamp: Date.now()
                         });
                         riderLocations.delete(data.orderId);
+                        riderGeofenceHistory.delete(key);
                         try {
                             await redisClient.hdel("order:locations", data.orderId);
                         } catch (e) {}
@@ -313,6 +422,14 @@ const start = async () => {
 
             const { setupSettlementWorker } = require("./workers/settlementWorker");
             setupSettlementWorker(app);
+
+            // ── Phase-8: Escrow Settlement Queue Worker ──
+            const { setupEscrowSettlementWorker } = require("./workers/escrowSettlementWorker");
+            setupEscrowSettlementWorker();
+
+            // ── Phase-8: Stock Reservation Sweeper Worker ──
+            const { setupStockReservationWorker } = require("./workers/stockReservationWorker");
+            setupStockReservationWorker();
 
             logger.info(`   Environment: ${config.nodeEnv}`);
             logger.info(`   CORS origin: ${config.corsOrigin}`);

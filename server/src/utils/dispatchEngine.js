@@ -1,20 +1,37 @@
 const Order = require("../models/Order");
 const User = require("../models/User");
 const logger = require("./logger");
-const { getDistanceMatrix } = require("../services/googleMapsService");
 const redisClient = require("../config/redis");
 const { haversineStrict: haversineDistance } = require("./geo");
 
 let timeoutSweeper = null;
 let isDispatching = false; // Mutex lock
 
+// ── Phase-8: Traffic multiplier heuristic (no external API) ──────────────────
+const getTrafficMultiplier = () => {
+    const hour = new Date().getHours();
+    if (hour >= 8 && hour <= 10) return 1.4;  // Morning rush
+    if (hour >= 12 && hour <= 14) return 1.2;  // Lunch rush
+    if (hour >= 17 && hour <= 20) return 1.5;  // Evening peak
+    if (hour >= 22 || hour <= 5) return 0.8;   // Low traffic
+    return 1.0;
+};
+
+// ── Phase-8: Adaptive dispatch radius ────────────────────────────────────────
+const getDispatchRadius = (order) => {
+    return order.currentDispatchRadius || 10; // km, stored per order
+};
+
+const MAX_DISPATCH_RETRIES = 10;
+const RADIUS_STEPS = [10, 15, 20]; // km
+
 const triggerDispatch = async (app) => {
-    if (isDispatching) return; // Prevent race conditions
+    if (isDispatching) return;
     isDispatching = true;
 
     try {
         const io = app.get("io");
-        const liveRiders = app.get("liveRiders"); // Map from server.js
+        const liveRiders = app.get("liveRiders");
 
         const unassignedOrders = await Order.find({
             status: "READY_FOR_PICKUP",
@@ -28,16 +45,15 @@ const triggerDispatch = async (app) => {
             return;
         }
 
-        // Get all online delivery partners
         const onlineRiders = await User.find({ role: "delivery", isOnline: true });
         
         // Map rider states
-        const riderLoad = {}; // active order count
+        const riderLoad = {};
         for (const r of onlineRiders) {
             riderLoad[r._id.toString()] = r.activeOrderIds ? r.activeOrderIds.length : 0;
         }
 
-        // ── Phase-5: N+1 Optimization (Batch Fetch Active Orders) ──
+        // Phase-5: N+1 Optimization (Batch Fetch Active Orders)
         const activeOrderIdsToFetch = onlineRiders.map(r => r.activeOrderId).filter(Boolean);
         const activeOrdersList = activeOrderIdsToFetch.length > 0 ? await Order.find({ _id: { $in: activeOrderIdsToFetch } }) : [];
         const activeOrdersMap = new Map();
@@ -45,35 +61,51 @@ const triggerDispatch = async (app) => {
             activeOrdersMap.set(o._id.toString(), o);
         }
 
-        // ── Phase-5: Redis N+1 Optimization (Local Meta Cache) ──
+        // Phase-5: Redis N+1 Optimization (Local Meta Cache)
         const riderMetaCache = new Map();
+        const trafficMultiplier = getTrafficMultiplier();
 
         for (const order of unassignedOrders) {
             if (!order.pickupLocation || !order.pickupLocation.coordinates) continue;
             const storeLat = order.pickupLocation.coordinates[1];
             const storeLng = order.pickupLocation.coordinates[0];
 
+            // Phase-8: Retry cap check
+            if ((order.retryCount || 0) >= MAX_DISPATCH_RETRIES) {
+                if (!order.escalationRequired) {
+                    await Order.findByIdAndUpdate(order._id, {
+                        $set: { escalationRequired: true },
+                    });
+                    const { notify } = require("../services/notificationService");
+                    await notify("admin", `🚨 Dispatch failed after ${MAX_DISPATCH_RETRIES} retries: Order ${order._id}`, "alert");
+                    logger.warn(`[Dispatch] Order ${order._id} exceeded max retries — escalated to admin`);
+                }
+                continue; // Skip this order
+            }
+
             let bestRider = null;
-            let shortestDist = Infinity; // the math score
-            let bestTrueDistance = Infinity; // the actual real-world meters
+            let shortestDist = Infinity;
+            let bestTrueDistance = Infinity;
             let isBatchOpportunity = false;
             let candidateList = [];
 
-            // ── Single Source of Truth (Redis GEO Clustering) ────────────
+            // Phase-8: Adaptive dispatch radius
+            const radiusKm = getDispatchRadius(order);
+
+            // Single Source of Truth (Redis GEO Clustering)
             let searchPool = [];
             let useRedisFallback = true;
             try {
-                // Fetch rider IDs natively from Redis regardless of which Node node they connected to
                 const redisCandidates = await redisClient.geosearch(
                     "riders:locations",
                     "FROMLONLAT", storeLng, storeLat,
-                    "BYRADIUS", 10, "km",
+                    "BYRADIUS", radiusKm, "km",
                     "ASC"
                 );
                 searchPool = redisCandidates;
                 useRedisFallback = false;
             } catch (e) {
-                logger.warn("Redis GEOSEARCH failed dynamically falling back to Memory Maps for Dispatch.");
+                logger.warn("Redis GEOSEARCH failed, falling back to Memory Maps for Dispatch.");
                 searchPool = onlineRiders;
             }
 
@@ -87,12 +119,16 @@ const triggerDispatch = async (app) => {
                     continue;
                 }
 
+                // Phase-8: Rider rejection cooldown check
+                if (rider.dispatchCooldownUntil && new Date(rider.dispatchCooldownUntil) > new Date()) {
+                    continue; // Rider is in cooldown
+                }
+
                 const activeCount = riderLoad[riderId] || 0;
                 const maxActive = rider.maxActiveOrders || 3;
-                
-                if (activeCount >= maxActive) continue; // Full capacity
+                if (activeCount >= maxActive) continue;
 
-                // ── Cross-Cluster Metadata ──────────────────────────────
+                // Cross-Cluster Metadata
                 let liveLoc = liveRiders ? liveRiders.get(riderId) : null;
                 if (!useRedisFallback) {
                     if (riderMetaCache.has(riderId)) {
@@ -100,21 +136,19 @@ const triggerDispatch = async (app) => {
                     } else {
                         try {
                             const rawMeta = await redisClient.hget(`rider:${riderId}:meta`, "data");
-                            if (rawMeta) {
-                                liveLoc = JSON.parse(rawMeta);
-                            }
+                            if (rawMeta) liveLoc = JSON.parse(rawMeta);
                         } catch (e) {}
                         riderMetaCache.set(riderId, liveLoc);
                     }
                 }
 
-                if (!liveLoc || liveLoc.batteryLevel < 0.1 || liveLoc.status !== "online") continue; // Needs GPS and Battery > 10%
+                if (!liveLoc || liveLoc.batteryLevel < 0.1 || liveLoc.status !== "online") continue;
 
-                // ── RIDER GPS FRESHNESS CHECK ──
+                // RIDER GPS FRESHNESS CHECK
                 const locationAgeSeconds = (Date.now() - liveLoc.time) / 1000;
-                if (locationAgeSeconds > 30) continue; // Location is too stale, rider might be disconnected
+                if (locationAgeSeconds > 30) continue;
 
-                // ── BATCHING PROXIMITY SAFEGUARDS ──
+                // BATCHING PROXIMITY SAFEGUARDS
                 let riderIsAtSameStore = false;
                 if (activeCount > 0 && rider.activeOrderId) {
                     const existingOrder = activeOrdersMap.get(rider.activeOrderId.toString());
@@ -135,67 +169,51 @@ const triggerDispatch = async (app) => {
                 );
 
                 if (riderIsAtSameStore) {
-                    // Instant batching match
                     bestRider = rider;
                     shortestDist = distToStore;
                     bestTrueDistance = distToStore;
                     isBatchOpportunity = true;
-                    break; 
+                    break;
                 }
 
-                if (distToStore <= 5000) {
-                    const idlePenalty = locationAgeSeconds * 5; 
-                    const loadPenalty = activeCount * 800; 
-                    const baseScore = distToStore + idlePenalty + loadPenalty;
+                if (distToStore <= radiusKm * 1000) {
+                    // Phase-8: Pure Haversine + traffic multiplier scoring (no Google API)
+                    const adjustedDistance = distToStore * trafficMultiplier;
+                    const idlePenalty = locationAgeSeconds * 5;
+                    const loadPenalty = activeCount * 800;
+                    const idleBonus = locationAgeSeconds < 5 ? -200 : 0; // Bonus for very fresh location
+                    const ratingBonus = (rider.rating || 5) >= 4.5 ? -100 : 0; // Quality bonus
+                    const baseScore = adjustedDistance + idlePenalty + loadPenalty + idleBonus + ratingBonus;
 
                     candidateList.push({
                         rider,
                         liveLoc,
                         distToStore,
-                        idlePenalty,
-                        loadPenalty,
                         baseScore
                     });
                 }
             }
 
             if (!bestRider && candidateList.length > 0) {
-                // Phase-3: Sort by Haversine base score, slice Top 5
+                // Phase-8: Sort by heuristic score, take best
                 candidateList.sort((a, b) => a.baseScore - b.baseScore);
-                const topCandidates = candidateList.slice(0, 5);
-
-                // Fetch Real Road Network Distances for Top 5 constraints
-                const origins = topCandidates.map(c => ({ lat: c.liveLoc.lat, lng: c.liveLoc.lng }));
-                const destination = { lat: storeLat, lng: storeLng };
-                const matrixResults = await getDistanceMatrix(origins, destination);
-
-                // Find the specific winner based on Road Network Distance
-                for (let i = 0; i < topCandidates.length; i++) {
-                    const candidate = topCandidates[i];
-                    const matrixData = matrixResults[i];
-
-                    // Use real road distance for scoring, or fallback to haversine if API skipped
-                    const realDistToStore = matrixData.distance; 
-                    const dispatchScore = realDistToStore + candidate.idlePenalty + candidate.loadPenalty;
-
-                    if (dispatchScore < shortestDist) {
-                        shortestDist = dispatchScore;
-                        bestTrueDistance = realDistToStore;
-                        bestRider = candidate.rider;
-                    }
-                }
+                const winner = candidateList[0];
+                bestRider = winner.rider;
+                shortestDist = winner.baseScore;
+                bestTrueDistance = winner.distToStore;
             }
 
             if (bestRider) {
                 // Atomic offer lock
                 const updatedOrder = await Order.findOneAndUpdate(
                     { _id: order._id, offeredToPartnerId: null },
-                    { 
-                        $set: { 
-                            offeredToPartnerId: bestRider._id, 
+                    {
+                        $set: {
+                            offeredToPartnerId: bestRider._id,
                             offerExpiresAt: new Date(Date.now() + 15 * 1000),
                             batchId: isBatchOpportunity ? `BATCH-${order.storeId}-${Math.floor(Date.now() / 1000)}` : order.batchId
-                        } 
+                        },
+                        $inc: { offerCount: 1 }, // Phase-8: Dispatch monitoring
                     },
                     { new: true }
                 );
@@ -204,15 +222,27 @@ const triggerDispatch = async (app) => {
                     io.to(`delivery_${bestRider._id}`).emit("newDeliveryOffer", {
                         orderId: order._id,
                         storeName: order.storeName,
-                        distanceToStoreMeters: Math.round(bestTrueDistance), // Send REAL distance to rider app, not score
+                        distanceToStoreMeters: Math.round(bestTrueDistance),
                         pickupLocation: order.pickupLocation,
                         dropLocation: order.dropLocation,
                         total: order.total,
                         expiresAt: updatedOrder.offerExpiresAt,
                         isBatch: isBatchOpportunity
                     });
-                    logger.info(`[Dispatch Engine] Event-Driven Offer: Order ${order._id} → Rider ${bestRider._id} (${Math.round(bestTrueDistance)}m true). Batched: ${isBatchOpportunity}`);
+                    logger.info(`[Dispatch Engine] Offer: Order ${order._id} → Rider ${bestRider._id} (${Math.round(bestTrueDistance)}m, radius: ${radiusKm}km). Batched: ${isBatchOpportunity}`);
                 }
+            } else {
+                // Phase-8: Increment retry count and expand radius
+                const currentRetry = (order.retryCount || 0) + 1;
+                const radiusIndex = Math.min(Math.floor(currentRetry / 3), RADIUS_STEPS.length - 1);
+                const newRadius = RADIUS_STEPS[radiusIndex];
+
+                await Order.findByIdAndUpdate(order._id, {
+                    $inc: { retryCount: 1 },
+                    $set: { currentDispatchRadius: newRadius },
+                });
+
+                logger.info(`[Dispatch] No riders for Order ${order._id} (retry ${currentRetry}, radius → ${newRadius}km)`);
             }
         }
     } catch (err) {
@@ -250,12 +280,29 @@ const startDispatchEngine = (app) => {
                     $push: { rejectedByPartnerIds: expiredRiderId }
                 });
 
+                // Phase-8: Track rider rejection metrics
+                await User.findByIdAndUpdate(expiredRiderId, {
+                    $inc: { rejectionCount: 1 },
+                    $set: { lastRejectionAt: now },
+                });
+
+                // Phase-8: Apply cooldown if threshold exceeded (5 rejections in 30 minutes)
+                const rider = await User.findById(expiredRiderId);
+                if (rider && rider.rejectionCount >= 5) {
+                    const thirtyMinsAgo = new Date(now.getTime() - 30 * 60 * 1000);
+                    if (rider.lastRejectionAt && rider.lastRejectionAt > thirtyMinsAgo) {
+                        await User.findByIdAndUpdate(expiredRiderId, {
+                            $set: { dispatchCooldownUntil: new Date(now.getTime() + 10 * 60 * 1000) }, // 10 min cooldown
+                        });
+                        logger.warn(`[Dispatch] Rider ${expiredRiderId} placed on 10-min cooldown (${rider.rejectionCount} rejections)`);
+                    }
+                }
+
                 if (io) io.to(`delivery_${expiredRiderId}`).emit("offerExpired", { orderId: order._id });
                 needsRedispatch = true;
             }
 
             if (needsRedispatch) {
-                // Safely trigger next wave immediately
                 setImmediate(() => triggerDispatch(app));
             }
 

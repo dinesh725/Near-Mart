@@ -1,16 +1,16 @@
 const mongoose = require("mongoose");
 
 const transactionSchema = new mongoose.Schema({
-    idempotencyKey: { type: String, unique: true, sparse: true, index: true }, 
+    idempotencyKey: { type: String, unique: true, sparse: true, index: true },
     orderId: { type: mongoose.Schema.Types.ObjectId, ref: "Order", index: true }, // Optional ref to an order
-    type: { 
-        type: String, 
-        enum: ["order_payment", "wallet_topup", "refund", "PAYMENT_CAPTURE", "ESCROW_RELEASE", "REFUND", "PAYOUT", "ADJUSTMENT", "PLATFORM_FEE"], 
-        required: true 
+    type: {
+        type: String,
+        enum: ["order_payment", "wallet_topup", "refund", "PAYMENT_CAPTURE", "ESCROW_RELEASE", "REFUND", "PAYOUT", "ADJUSTMENT", "PLATFORM_FEE"],
+        required: true
     },
-    status: { 
-        type: String, 
-        enum: ["pending", "completed", "failed", "refunded", "PENDING", "COMPLETED", "FAILED"], 
+    status: {
+        type: String,
+        enum: ["pending", "completed", "failed", "refunded", "PENDING", "COMPLETED", "FAILED"],
         default: "PENDING",
         index: true
     },
@@ -21,7 +21,7 @@ const transactionSchema = new mongoose.Schema({
         balanceType: { type: String, enum: ["balance", "pendingBalance", "availableBalance"], default: "balance" }
     }],
     metadata: { type: mongoose.Schema.Types.Mixed }, // e.g., failure reason
-    
+
     // Webhook Replay Protection
     gatewayPaymentId: { type: String, unique: true, sparse: true, index: true },
     gatewayRefundId: { type: String, unique: true, sparse: true, index: true },
@@ -43,7 +43,7 @@ transactionSchema.index({ createdAt: -1 });
 transactionSchema.index({ "entries.walletId": 1 }); // Required to speed up ledger aggregates
 
 // Ensure double-entry validity before saving
-transactionSchema.pre("save", function(next) {
+transactionSchema.pre("save", function (next) {
     if (this.entries && this.entries.length > 0) {
         const sum = this.entries.reduce((acc, entry) => acc + entry.amount, 0);
         // Using toFixed to handle JS floating point inaccuracies

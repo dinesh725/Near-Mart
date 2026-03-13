@@ -19,8 +19,11 @@ function getSocket() {
     if (socket) return socket; // reconnecting
 
     try {
+        // Phase-8: Send JWT token for server-side identity binding
+        const token = typeof localStorage !== 'undefined' ? localStorage.getItem('nm_access_token') : null;
+
         socket = io(SOCKET_URL, {
-            transports: ['websocket', 'polling'], // WebSocket first, polling fallback
+            transports: ['websocket', 'polling'],
             reconnection: true,
             reconnectionAttempts: Infinity,
             reconnectionDelay: 1000,
@@ -29,6 +32,7 @@ function getSocket() {
             timeout: 10000,
             autoConnect: true,
             path: '/socket.io',
+            auth: token ? { token } : {},
         });
 
         socket.on('connect', () => {

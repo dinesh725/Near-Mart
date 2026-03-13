@@ -11,6 +11,9 @@ const startCronJobs = (app) => {
             await addCronJobExec("cronJobs", { type: "unassignDeadAssignments" });
             await addCronJobExec("cronJobs", { type: "escalateStarvingOrders" });
             await addCronJobExec("cronJobs", { type: "offlineGhostRiders" });
+            // Phase-8: Stock reservation sweeper
+            const { addStockReservationSweep } = require("../services/queueService");
+            await addStockReservationSweep();
             // NOTE: cleanupAbandonedCarts runs on its own 5-min schedule in services/cronJobs.js
 
         } catch (error) {

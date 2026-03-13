@@ -9,6 +9,8 @@ const cronQueue = new Queue("cronJobs", { connection: redisClient });
 const paymentQueue = new Queue("payments", { connection: redisClient });
 const refundQueue = new Queue("refunds", { connection: redisClient });
 const payoutQueue = new Queue("payouts", { connection: redisClient });
+const escrowSettlementQueue = new Queue("escrowSettlement", { connection: redisClient });
+const stockReservationQueue = new Queue("stockReservation", { connection: redisClient });
 
 // ── Helper to schedule background jobs ────────────────────────────────────────
 const addNotificationJob = async (type, payload) => {
@@ -78,15 +80,45 @@ const addPayoutJob = async (payload, opts = {}) => {
     }
 };
 
+const addSettlementJob = async (payload, opts = {}) => {
+    try {
+        await escrowSettlementQueue.add('settle_escrow', payload, {
+            attempts: 10,
+            backoff: { type: "exponential", delay: 5000 },
+            removeOnComplete: true,
+            removeOnFail: false, // Keep for admin audit
+            ...opts
+        });
+    } catch (err) {
+        logger.error(`Failed to enqueue settlement job: ${err.message}`);
+    }
+};
+
+const addStockReservationSweep = async () => {
+    try {
+        await stockReservationQueue.add('sweep_expired', {}, {
+            attempts: 3,
+            backoff: { type: "exponential", delay: 2000 },
+            removeOnComplete: true,
+        });
+    } catch (err) {
+        logger.error(`Failed to enqueue stock sweep: ${err.message}`);
+    }
+};
+
 module.exports = {
     notificationQueue,
     cronQueue,
     paymentQueue,
     refundQueue,
     payoutQueue,
+    escrowSettlementQueue,
+    stockReservationQueue,
     addNotificationJob,
     addCronJobExec,
     addPaymentJob,
     addRefundJob,
-    addPayoutJob
+    addPayoutJob,
+    addSettlementJob,
+    addStockReservationSweep
 };

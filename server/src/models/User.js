@@ -23,6 +23,7 @@ const userSchema = new mongoose.Schema({
     },
     avatar: { type: String, default: "" },
     walletBalance: { type: Number, default: 0 },
+    reservedBalance: { type: Number, default: 0 }, // Held for pending hybrid payments
     refreshToken: { type: String, select: false },
     // ── Push Notifications ──────────────────────────────────────────────────
     fcmToken: { type: String }, // Legacy, keep for backward compatibility
@@ -94,7 +95,11 @@ const userSchema = new mongoose.Schema({
         documentIdentifier: { type: String }, // Pre-signed cloud storage key
         status: { type: String, enum: ['VERIFIED', 'REJECTED'] }
     }],
-    payoutsEnabled: { type: Boolean, default: false } // Safety kill-switch
+    payoutsEnabled: { type: Boolean, default: false }, // Safety kill-switch
+    // ── Rider Rejection Tracking (Phase-8) ───────────────────────────
+    rejectionCount: { type: Number, default: 0 },
+    lastRejectionAt: { type: Date },
+    dispatchCooldownUntil: { type: Date },
 }, { timestamps: true });
 
 // Hash password before save

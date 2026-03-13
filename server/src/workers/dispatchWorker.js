@@ -3,11 +3,24 @@ const redisClient = require("../config/redis");
 const Order = require("../models/Order");
 const User = require("../models/User");
 const logger = require("../utils/logger");
-const { getDistanceMatrix } = require("../services/googleMapsService");
 const { haversineStrict: haversineDistance } = require("../utils/geo");
 
 // Phase-5: Separate Queue for Delayed Waves
 const dispatchWaveQueue = new Queue("dispatchWaveQueue", { connection: redisClient });
+
+// Phase-8: Adaptive radius steps
+const RADIUS_STEPS = [10, 15, 20]; // km
+const MAX_DISPATCH_RETRIES = 10;
+
+// Phase-8: Traffic multiplier heuristic (no external API)
+const getTrafficMultiplier = () => {
+    const hour = new Date().getHours();
+    if (hour >= 8 && hour <= 10) return 1.4;
+    if (hour >= 12 && hour <= 14) return 1.2;
+    if (hour >= 17 && hour <= 20) return 1.5;
+    if (hour >= 22 || hour <= 5) return 0.8;
+    return 1.0;
+};
 
 const processDispatchEvent = async (orderId, waveOffset = 0, app) => {
     try {
@@ -15,25 +28,49 @@ const processDispatchEvent = async (orderId, waveOffset = 0, app) => {
         const order = await Order.findById(orderId);
         
         if (!order || order.status !== "READY_FOR_PICKUP" || order.acceptedByPartnerId || order.flagged) {
-            return; // Order resolved or invalid
+            return;
+        }
+
+        // Phase-8: Retry cap check
+        if ((order.retryCount || 0) >= MAX_DISPATCH_RETRIES) {
+            if (!order.escalationRequired) {
+                await Order.findByIdAndUpdate(order._id, { $set: { escalationRequired: true } });
+                const { notify } = require("../services/notificationService");
+                await notify("admin", `🚨 Dispatch failed after ${MAX_DISPATCH_RETRIES} retries: Order ${order._id}`, "alert");
+                logger.warn(`[Dispatch Wave] Order ${order._id} exceeded max retries — escalated`);
+            }
+            return;
         }
 
         if (!order.pickupLocation || !order.pickupLocation.coordinates) return;
 
         const storeLat = order.pickupLocation.coordinates[1];
         const storeLng = order.pickupLocation.coordinates[0];
+        const radiusKm = order.currentDispatchRadius || 10;
+        const trafficMultiplier = getTrafficMultiplier();
 
-        // 1. Redis GEOSEARCH for nearby riders
+        // 1. Redis GEOSEARCH for nearby riders (adaptive radius)
         const redisCandidates = await redisClient.geosearch(
             "riders:locations",
             "FROMLONLAT", storeLng, storeLat,
-            "BYRADIUS", 10, "km",
+            "BYRADIUS", radiusKm, "km",
             "ASC"
         );
 
         if (redisCandidates.length === 0) {
-            // No riders nearby. Wait and retry wave.
-            await dispatchWaveQueue.add("dispatch-wave", { orderId, waveOffset }, { delay: 15000 });
+            // Phase-8: Increment retry count and expand radius
+            const currentRetry = (order.retryCount || 0) + 1;
+            const radiusIndex = Math.min(Math.floor(currentRetry / 3), RADIUS_STEPS.length - 1);
+            const newRadius = RADIUS_STEPS[radiusIndex];
+
+            await Order.findByIdAndUpdate(orderId, {
+                $inc: { retryCount: 1 },
+                $set: { currentDispatchRadius: newRadius },
+            });
+
+            if (currentRetry < MAX_DISPATCH_RETRIES) {
+                await dispatchWaveQueue.add("dispatch-wave", { orderId, waveOffset }, { delay: 15000 });
+            }
             return;
         }
 
@@ -45,6 +82,7 @@ const processDispatchEvent = async (orderId, waveOffset = 0, app) => {
         }
 
         if (availableRiders.length === 0) {
+            await Order.findByIdAndUpdate(orderId, { $inc: { retryCount: 1 } });
             await dispatchWaveQueue.add("dispatch-wave", { orderId, waveOffset }, { delay: 15000 });
             return;
         }
@@ -54,13 +92,31 @@ const processDispatchEvent = async (orderId, waveOffset = 0, app) => {
         const validRiderIds = availableRiders.filter(id => !rejectedIds.includes(id));
 
         if (validRiderIds.length === 0) {
-            // Everyone rejected/busy. Retry later.
-            await dispatchWaveQueue.add("dispatch-wave", { orderId, waveOffset: 0 }, { delay: 30000 });
+            // Phase-8: Expand radius on exhaustion instead of infinite loop
+            const currentRetry = (order.retryCount || 0) + 1;
+            const radiusIndex = Math.min(Math.floor(currentRetry / 3), RADIUS_STEPS.length - 1);
+            const newRadius = RADIUS_STEPS[radiusIndex];
+
+            await Order.findByIdAndUpdate(orderId, {
+                $inc: { retryCount: 1 },
+                $set: { currentDispatchRadius: newRadius },
+            });
+
+            if (currentRetry < MAX_DISPATCH_RETRIES) {
+                await dispatchWaveQueue.add("dispatch-wave", { orderId, waveOffset: 0 }, { delay: 30000 });
+            }
             return;
         }
 
-        // Get riders and metadata
-        const onlineRiders = await User.find({ _id: { $in: validRiderIds }, isOnline: true });
+        // Get riders and metadata — filter by cooldown
+        const onlineRiders = await User.find({
+            _id: { $in: validRiderIds },
+            isOnline: true,
+            $or: [
+                { dispatchCooldownUntil: null },
+                { dispatchCooldownUntil: { $lt: new Date() } },
+            ],
+        });
         const candidateList = [];
 
         for (const rider of onlineRiders) {
@@ -83,14 +139,19 @@ const processDispatchEvent = async (orderId, waveOffset = 0, app) => {
                 { lat: storeLat, lng: storeLng }
             );
 
+            // Phase-8: Heuristic scoring (no Google Maps API)
+            const adjustedDistance = distToStore * trafficMultiplier;
             const idlePenalty = locationAgeSeconds * 5; 
             const loadPenalty = activeCount * 800; 
-            const dispatchScore = distToStore + idlePenalty + loadPenalty;
+            const idleBonus = locationAgeSeconds < 5 ? -200 : 0;
+            const ratingBonus = (rider.rating || 5) >= 4.5 ? -100 : 0;
+            const dispatchScore = adjustedDistance + idlePenalty + loadPenalty + idleBonus + ratingBonus;
 
             candidateList.push({ rider, liveLoc, dispatchScore, trueDistance: distToStore });
         }
 
         if (candidateList.length === 0) {
+            await Order.findByIdAndUpdate(orderId, { $inc: { retryCount: 1 } });
             await dispatchWaveQueue.add("dispatch-wave", { orderId, waveOffset }, { delay: 15000 });
             return;
         }
@@ -98,30 +159,26 @@ const processDispatchEvent = async (orderId, waveOffset = 0, app) => {
         // Apply scoring
         candidateList.sort((a, b) => a.dispatchScore - b.dispatchScore);
         
-        // ── WAVE SYSTEM ── (Take next 3 riders based on offset)
+        // WAVE SYSTEM (Take next 3 riders based on offset)
         const waveCandidates = candidateList.slice(waveOffset, waveOffset + 3);
 
         if (waveCandidates.length === 0) {
-            // Restart wave targeting if we ran out of new candidates
-            await dispatchWaveQueue.add("dispatch-wave", { orderId, waveOffset: 0 }, { delay: 30000 });
+            const currentRetry = (order.retryCount || 0) + 1;
+            const radiusIndex = Math.min(Math.floor(currentRetry / 3), RADIUS_STEPS.length - 1);
+            const newRadius = RADIUS_STEPS[radiusIndex];
+
+            await Order.findByIdAndUpdate(orderId, {
+                $inc: { retryCount: 1 },
+                $set: { currentDispatchRadius: newRadius },
+            });
+
+            if (currentRetry < MAX_DISPATCH_RETRIES) {
+                await dispatchWaveQueue.add("dispatch-wave", { orderId, waveOffset: 0 }, { delay: 30000 });
+            }
             return;
         }
 
-        // Fetch Distance Matrix for top wave candidates
-        const origins = waveCandidates.map(c => ({ lat: c.liveLoc.lat, lng: c.liveLoc.lng }));
-        const destination = { lat: storeLat, lng: storeLng };
-        
-        try {
-            const matrixResults = await getDistanceMatrix(origins, destination);
-            for (let i = 0; i < waveCandidates.length; i++) {
-                waveCandidates[i].trueDistance = matrixResults[i].distance;
-                waveCandidates[i].dispatchScore = matrixResults[i].distance + waveCandidates[i].dispatchScore;
-            }
-            waveCandidates.sort((a, b) => a.dispatchScore - b.dispatchScore);
-        } catch (e) {
-            logger.warn("Matrix failed, using Haversine");
-        }
-
+        // Take the best from the wave
         const winner = waveCandidates[0];
 
         // Ensure atomic lock
@@ -131,7 +188,8 @@ const processDispatchEvent = async (orderId, waveOffset = 0, app) => {
                 $set: { 
                     offeredToPartnerId: winner.rider._id, 
                     offerExpiresAt: new Date(Date.now() + 15 * 1000)
-                } 
+                },
+                $inc: { offerCount: 1 }, // Phase-8: Dispatch monitoring
             },
             { new: true }
         );
@@ -148,7 +206,7 @@ const processDispatchEvent = async (orderId, waveOffset = 0, app) => {
                 isBatch: false
             });
 
-            logger.info(`[Dispatch Wave] Offer: Order ${order._id} → Rider ${winner.rider._id} (Wave Offset: ${waveOffset})`);
+            logger.info(`[Dispatch Wave] Offer: Order ${order._id} → Rider ${winner.rider._id} (Wave Offset: ${waveOffset}, Radius: ${radiusKm}km)`);
             
             // Schedule the NEXT wave if this one expires
             await dispatchWaveQueue.add("check-expired", { orderId, winnerId: winner.rider._id, waveOffset }, { delay: 15500 });
@@ -162,17 +220,14 @@ const processDispatchEvent = async (orderId, waveOffset = 0, app) => {
 const setupDispatchWorker = (app) => {
     // 1. Native BRPOP Queue Consumer Loop
     const runRedisConsumer = async () => {
-        logger.info("🚀 Starting Phase-5 BRPOP Dispatch Consumer");
-        // We use a duplicated client for blocking operations
+        logger.info("🚀 Starting Phase-8 BRPOP Dispatch Consumer (Haversine + Adaptive Radius)");
         const blockingClient = redisClient.duplicate();
         while (true) {
             try {
-                // Blocks until an order is pushed
                 const result = await blockingClient.brpop("orders:pending", 0);
                 if (result) {
                     const orderId = result[1];
                     logger.info(`[Dispatch Engine] Pop order from queue: ${orderId}`);
-                    // Fire and forget
                     processDispatchEvent(orderId, 0, app);
                 }
             } catch (err) {
@@ -182,13 +237,11 @@ const setupDispatchWorker = (app) => {
         }
     };
     
-    // Start consumer asynchronously
     runRedisConsumer();
 
     // 2. BullMQ Worker for Waves and Timeouts
     new Worker("dispatchWaveQueue", async (job) => {
         const { orderId, winnerId, waveOffset } = job.data;
-        const io = app.get("io");
 
         if (job.name === "dispatch-wave") {
             await processDispatchEvent(orderId, waveOffset, app);
@@ -196,13 +249,32 @@ const setupDispatchWorker = (app) => {
         else if (job.name === "check-expired") {
             const order = await Order.findById(orderId);
             if (order && order.offeredToPartnerId && order.offeredToPartnerId.toString() === winnerId && order.status === "READY_FOR_PICKUP") {
-                // Still waiting? Time expired!
                 await Order.findByIdAndUpdate(orderId, {
                     $set: { offeredToPartnerId: null, offerExpiresAt: null },
                     $push: { rejectedByPartnerIds: winnerId }
                 });
                 
+                // Phase-8: Track rider rejection
+                await User.findByIdAndUpdate(winnerId, {
+                    $inc: { rejectionCount: 1 },
+                    $set: { lastRejectionAt: new Date() },
+                });
+
+                // Phase-8: Apply cooldown if threshold exceeded
+                const rider = await User.findById(winnerId);
+                if (rider && rider.rejectionCount >= 5) {
+                    const now = new Date();
+                    const thirtyMinsAgo = new Date(now.getTime() - 30 * 60 * 1000);
+                    if (rider.lastRejectionAt && rider.lastRejectionAt > thirtyMinsAgo) {
+                        await User.findByIdAndUpdate(winnerId, {
+                            $set: { dispatchCooldownUntil: new Date(now.getTime() + 10 * 60 * 1000) },
+                        });
+                        logger.warn(`[Dispatch Wave] Rider ${winnerId} on 10-min cooldown`);
+                    }
+                }
+
                 logger.info(`[Dispatch Wave] Offer Expired. Order ${orderId} missed by ${winnerId}. Triggering next wave.`);
+                const io = app.get("io");
                 if (io) io.to(`delivery_${winnerId}`).emit("offerExpired", { orderId });
 
                 // Trigger next wave (increment offset by 3)
@@ -211,7 +283,7 @@ const setupDispatchWorker = (app) => {
         }
     }, { connection: redisClient });
 
-    logger.info("✅ BulkMQ Dispatch Worker initialized.");
+    logger.info("✅ BullMQ Dispatch Worker initialized (Phase-8: Adaptive Radius + Rejection Tracking).");
 };
 
 module.exports = { setupDispatchWorker };
