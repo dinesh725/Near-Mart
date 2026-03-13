@@ -4,7 +4,7 @@ const mongoose = require('mongoose');
 const { body, validationResult } = require('express-validator');
 
 const { authenticate: authMiddleware, authorize: roleGuard } = require('../middleware/auth');
-const { idempotencyGuard } = require('../middleware/idempotencyGuard');
+const idempotencyGuard = require('../middleware/idempotency');
 
 const User = require('../models/User');
 const Wallet = require('../models/Wallet');
