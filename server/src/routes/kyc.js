@@ -22,6 +22,8 @@ router.get('/upload-url', authMiddleware, async (req, res) => {
     }
 });
 
+const User = require('../models/User');
+
 // Admin ONLY: Fetch document image for review
 router.get('/read-url/:id', authMiddleware, roleGuard('ADMIN'), async (req, res) => {
     try {
@@ -30,6 +32,57 @@ router.get('/read-url/:id', authMiddleware, roleGuard('ADMIN'), async (req, res)
         
         if (!result.ok) return res.status(500).json({ error: result.error });
         res.json({ ok: true, readUrl: result.url });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Admin ONLY: Update KYC Status
+router.patch('/admin/:userId', authMiddleware, async (req, res) => {
+    // Task 3: Add Authorization Protection
+    if (req.user.role !== "admin") {
+        return res.status(403).json({ error: "Forbidden: Admin access required" });
+    }
+
+    try {
+        const { kycStatus } = req.body;
+        const { userId } = req.params;
+
+        if (!kycStatus) {
+            return res.status(400).json({ error: "kycStatus is required" });
+        }
+
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ error: "User not found" });
+        }
+
+        // Task 4: Prevent Invalid Status Transitions
+        const allowedTransitions = {
+            PENDING: ["SUBMITTED"],
+            SUBMITTED: ["VERIFIED", "REJECTED"],
+            VERIFIED: ["REJECTED"], // Provide a way out if verified by mistake
+            REJECTED: ["SUBMITTED"] // Let them re-submit
+        };
+
+        const validNextStates = allowedTransitions[user.kycStatus] || [];
+        if (!validNextStates.includes(kycStatus)) {
+            return res.status(400).json({ 
+                error: `Invalid transition: Cannot move from ${user.kycStatus} to ${kycStatus}` 
+            });
+        }
+
+        user.kycStatus = kycStatus;
+        
+        // Task 6: Add timestamp for verification if state equals VERIFIED
+        if (kycStatus === "VERIFIED") {
+            user.kycVerifiedAt = new Date();
+             // Enable payouts when verified safely
+            user.payoutsEnabled = true;
+        }
+
+        await user.save();
+        res.json({ ok: true, user: user.toJSON() });
     } catch (e) {
         res.status(500).json({ error: e.message });
     }

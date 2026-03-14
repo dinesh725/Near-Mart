@@ -178,10 +178,19 @@ router.patch("/profile", authenticate,
                 "storeName", "storeId", "city", "payoutAccount", "businessHours",
                 "companyName", "supplierId", "paymentTerms",
                 "vehicleType", "vehicleNo",
-                "department", "shift"
+                "department", "shift",
+                "kycDocuments", "kycSubmittedAt"
             ];
             for (const key of allowed) {
                 if (req.body[key] !== undefined) req.user[key] = req.body[key];
+            }
+            
+            // Auto-transition to SUBMITTED if documents are explicitly provided and not already verified
+            if (req.body.kycDocuments !== undefined && req.user.kycStatus !== "VERIFIED") {
+                req.user.kycStatus = "SUBMITTED";
+                if (!req.body.kycSubmittedAt) {
+                    req.user.kycSubmittedAt = new Date(); // Server-generated timestamp fallback
+                }
             }
             await req.user.save();
             res.json({ ok: true, user: req.user.toJSON() });

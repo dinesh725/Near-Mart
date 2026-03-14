@@ -128,13 +128,24 @@ function AppInner() {
 
   // ── VERIFICATION GATE ──
   // Block access for unverified users (admin/support exempt)
-  const isVerified = user?.emailVerified || user?.phoneVerified || role === "admin" || role === "support";
+  const isContactVerified = user?.emailVerified || user?.phoneVerified;
+  const requiresKyc = ["seller", "vendor", "delivery"].includes(role);
+  const isKycVerified = user?.kycStatus === "VERIFIED";
+
+  let isVerified = false;
+  if (role === "admin" || role === "support") {
+    isVerified = true;
+  } else if (requiresKyc) {
+    isVerified = isContactVerified && isKycVerified;
+  } else {
+    isVerified = isContactVerified;
+  }
 
   if (!isVerified) {
     return (
       <GlobalStoreProvider>
         <style dangerouslySetInnerHTML={{ __html: GLOBAL_CSS }} />
-        <Toaster position="bottom-center" />
+        <Toaster position="bottom-center" toastOptions={{ style: { background: T.card, color: T.text, border: `1px solid ${T.border}`, fontFamily: "'Sora',sans-serif", fontSize: 13 } }} />
         <VerificationGate />
       </GlobalStoreProvider>
     );
