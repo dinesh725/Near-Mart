@@ -453,7 +453,7 @@ export function OrdersPage({ onTrackOrder, setActiveTab, onReorderToCart, custom
             socket.off("orderStatusChanged", handleStatusUpdate);
             socket.off("newOrder", handleNewOrder);
         };
-    }, []);
+    }, [fetchCounts]);
 
     // ── IntersectionObserver for orders infinite scroll ────────────────────
     useEffect(() => {

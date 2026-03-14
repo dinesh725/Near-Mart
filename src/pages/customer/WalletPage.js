@@ -3,7 +3,6 @@ import ReactDOM from "react-dom";
 import { useAuth } from "../../auth/AuthContext";
 import { P } from "../../theme/theme";
 import { PullToRefreshWrapper } from "../../components/ui/PullToRefreshWrapper";
-import { InfiniteScrollTrigger } from "../../components/ui/InfiniteScrollTrigger";
 import { Virtuoso } from "react-virtuoso";
 
 const API_BASE = process.env.REACT_APP_API_URL || "http://localhost:5000/api";

@@ -26,7 +26,7 @@ const STATUS_LABEL = { PENDING: "Pending", CONFIRMED: "Confirmed", PREPARING: "P
 
 export function SellerDashboard({ activeTab }) {
     const { user } = useAuth();
-    const { orders, products, acceptOrder, prepareOrder, markReadyForPickup, updatePrice, addProduct, removeProduct, updateStock, updateProductImage, showToast, fetchOrders } = useStore();
+    const { orders, products, acceptOrder, prepareOrder, markReadyForPickup, updatePrice, addProduct, removeProduct, updateStock, updateProductImage, showToast } = useStore();
     const [toast, setToast] = useState(null);
     const [modal, setModal] = useState(null);
     const [form, setForm] = useState({});
@@ -368,7 +368,7 @@ export function SellerDashboard({ activeTab }) {
             } finally {
                 if (abortControllerRef.current === controller) setLoadingMore(false);
             }
-        }, [view, storeOrders]);
+        }, [view]);
 
         React.useEffect(() => {
             fetchSellerOrders(1, false);
@@ -693,7 +693,7 @@ export function SellerDashboard({ activeTab }) {
             } finally {
                 if (abortControllerRef.current === controller) setLoadingMore(false);
             }
-        }, [myProducts, user]);
+        }, []);
 
         React.useEffect(() => {
             fetchInventory(1, false);
