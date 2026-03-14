@@ -4,7 +4,7 @@ import { useAuth } from "../../auth/AuthContext";
 import api from "../../api/client";
 
 export function VerificationGate() {
-    const { user, logout, refreshUser } = useAuth();
+    const { user, logout } = useAuth();
     
     const isContactVerified = user?.emailVerified || user?.phoneVerified;
     const requiresKyc = ["seller", "vendor", "delivery"].includes(user?.role);
