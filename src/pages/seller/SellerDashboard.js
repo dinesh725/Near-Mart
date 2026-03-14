@@ -7,6 +7,7 @@ import { CloudImage } from "../../components/CloudImage";
 import { ImagePicker } from "../../components/ImagePicker";
 import { PullToRefreshWrapper } from "../../components/ui/PullToRefreshWrapper";
 import { InfiniteScrollTrigger } from "../../components/ui/InfiniteScrollTrigger";
+import socketManager from "../../utils/socketManager";
 
 function Toast({ msg, icon, onDone }) {
     React.useEffect(() => { const t = setTimeout(onDone, 3000); return () => clearTimeout(t); }, [onDone]);
@@ -320,13 +321,106 @@ export function SellerDashboard({ activeTab }) {
     );
 
     const OrdersTab = () => {
-        const filteredOrds = storeOrders.filter(o => o.status !== "DELIVERED" && o.status !== "CANCELLED");
-        const allOrds = storeOrders;
+        const [localOrders, setLocalOrders] = useState([]);
         const [view, setView] = React.useState("active");
-        const displayOrds = view === "active" ? filteredOrds : allOrds;
+        const [page, setPage] = useState(1);
+        const [hasMore, setHasMore] = useState(true);
+        const [loadingMore, setLoadingMore] = useState(false);
+        const abortControllerRef = React.useRef(null);
+
+        const fetchSellerOrders = useCallback(async (pageNum = 1, isRefresh = false) => {
+            if (isRefresh) {
+            } else {
+                setLoadingMore(true);
+            }
+
+            if (abortControllerRef.current) abortControllerRef.current.abort();
+            const controller = new AbortController();
+            abortControllerRef.current = controller;
+
+            try {
+                const token = getToken();
+                if (!token) return;
+                let statusQuery = view === "active" ? "PENDING,CONFIRMED,PREPARING,READY_FOR_PICKUP,OUT_FOR_DELIVERY" : "";
+                let url = `${API}/orders?page=${pageNum}&limit=20`;
+                if (statusQuery) url += `&status=${statusQuery}`;
+                
+                const res = await fetch(url, { headers: { "Authorization": `Bearer ${token}` }, signal: controller.signal });
+                const data = await res.json();
+                
+                if (data.ok) {
+                    const newItems = data.orders || [];
+                    if (pageNum === 1) {
+                        setLocalOrders(newItems);
+                    } else {
+                        setLocalOrders(prev => {
+                            const existingIds = new Set(prev.map(i => i._id));
+                            return [...prev, ...newItems.filter(i => !existingIds.has(i._id))];
+                        });
+                    }
+                    setHasMore((data.pagination && data.pagination.page < data.pagination.pages) || newItems.length === 20);
+                    setPage(pageNum);
+                }
+            } catch (err) {
+                if (err.name === 'AbortError') return;
+                // fallback to global state if offline
+                if (pageNum === 1) setLocalOrders(view === "active" ? storeOrders.filter(o => o.status !== "DELIVERED" && o.status !== "CANCELLED") : storeOrders);
+            } finally {
+                if (abortControllerRef.current === controller) setLoadingMore(false);
+            }
+        }, [view, storeOrders]);
+
+        React.useEffect(() => {
+            fetchSellerOrders(1, false);
+            return () => { if (abortControllerRef.current) abortControllerRef.current.abort(); };
+        }, [fetchSellerOrders]);
+
+        // ── Real-time WebSocket: patch/prepend without resetting ─────────────
+        React.useEffect(() => {
+            const socket = socketManager.getSocket();
+            if (!socket) return;
+
+            const handleStatusUpdate = (data) => {
+                if (!data || (!data.orderId && !data._id)) return;
+                const updatedOrderId = data.orderId || data._id;
+                setLocalOrders(prev => {
+                    const idx = prev.findIndex(o => (o._id || o.id) === updatedOrderId);
+                    if (idx !== -1) {
+                        const next = [...prev];
+                        next[idx] = { ...next[idx], ...data };
+                        return next;
+                    }
+                    return prev;
+                });
+            };
+
+            const handleNewOrder = (data) => {
+                if (!data) return;
+                setLocalOrders(prev => {
+                    const exists = prev.some(o => (o._id || o.id) === (data._id || data.id || data.orderId));
+                    if (exists) return prev;
+                    return [data, ...prev];
+                });
+            };
+
+            socket.on("orderStatusChanged", handleStatusUpdate);
+            socket.on("deliveryStatusUpdate", handleStatusUpdate);
+            socket.on("newOrder", handleNewOrder);
+            
+            return () => {
+                socket.off("orderStatusChanged", handleStatusUpdate);
+                socket.off("deliveryStatusUpdate", handleStatusUpdate);
+                socket.off("newOrder", handleNewOrder);
+            };
+        }, []);
+
+        const handleRefresh = () => fetchSellerOrders(1, true);
+        const loadMore = () => { if (!loadingMore && hasMore) fetchSellerOrders(page + 1); };
+
+        const displayOrds = localOrders;
 
         return (
-            <PullToRefreshWrapper onRefresh={fetchOrders}>
+            <PullToRefreshWrapper onRefresh={handleRefresh}>
             <div className="col gap14">
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <h2 style={{ fontWeight: 800, fontSize: 20 }}>📋 Orders</h2>
@@ -381,6 +475,9 @@ export function SellerDashboard({ activeTab }) {
                             </div>
                         );
                     })
+                )}
+                {displayOrds.length > 0 && hasMore && (
+                    <InfiniteScrollTrigger onIntersect={loadMore} loading={loadingMore} hasMore={hasMore} />
                 )}
             </div>
             </PullToRefreshWrapper>
@@ -554,30 +651,75 @@ export function SellerDashboard({ activeTab }) {
         );
     };
 
-    const [inventoryPage, setInventoryPage] = useState(1);
-    const INVENTORY_LIMIT = 20;
-
     const InventoryTab = () => {
-        const displayProducts = myProducts.slice(0, inventoryPage * INVENTORY_LIMIT);
-        const hasMore = displayProducts.length < myProducts.length;
+        const [localInventory, setLocalInventory] = useState([]);
+        const [inventoryPage, setInventoryPage] = useState(1);
+        const [hasMore, setHasMore] = useState(true);
+        const [loadingMore, setLoadingMore] = useState(false);
+        const abortControllerRef = React.useRef(null);
+
+        const fetchInventory = useCallback(async (pageNum = 1, isRefresh = false) => {
+            if (!isRefresh) setLoadingMore(true);
+
+            if (abortControllerRef.current) abortControllerRef.current.abort();
+            const controller = new AbortController();
+            abortControllerRef.current = controller;
+
+            try {
+                const token = getToken();
+                if (!token) return;
+                const res = await fetch(`${API}/products?sellerId=${user?._id || user?.id}&page=${pageNum}&limit=20`, { 
+                    headers: { "Authorization": `Bearer ${token}` },
+                    signal: controller.signal 
+                });
+                const data = await res.json();
+                if (data.ok) {
+                    const newItems = data.products || [];
+                    if (pageNum === 1) {
+                        setLocalInventory(newItems);
+                    } else {
+                        setLocalInventory(prev => {
+                            const existingIds = new Set(prev.map(i => i._id || i.id));
+                            return [...prev, ...newItems.filter(i => !existingIds.has(i._id || i.id))];
+                        });
+                    }
+                    setHasMore((data.pagination && data.pagination.page < data.pagination.pages) || newItems.length === 20);
+                    setInventoryPage(pageNum);
+                }
+            } catch (err) {
+                if (err.name === 'AbortError') return;
+                // fallback to global state
+                if (pageNum === 1) setLocalInventory(myProducts);
+            } finally {
+                if (abortControllerRef.current === controller) setLoadingMore(false);
+            }
+        }, [myProducts, user]);
+
+        React.useEffect(() => {
+            fetchInventory(1, false);
+            return () => { if (abortControllerRef.current) abortControllerRef.current.abort(); };
+        }, [fetchInventory]);
 
         const loadMore = useCallback(() => {
-            setInventoryPage(p => p + 1);
-        }, []);
+            if (!loadingMore && hasMore) fetchInventory(inventoryPage + 1);
+        }, [loadingMore, hasMore, fetchInventory, inventoryPage]);
+        
+        const handleRefresh = () => fetchInventory(1, true);
 
         return (
+        <PullToRefreshWrapper onRefresh={handleRefresh}>
         <div className="col gap14">
             <div className="row-between">
                 <h2 style={{ fontWeight: 800, fontSize: 20 }}>📦 Inventory ({myProducts.length} SKUs)</h2>
                 <button className="p-btn p-btn-ghost p-btn-sm" onClick={() => { setModal({ mode: "add" }); setForm({ emoji: "🛒", name: "", sellingPrice: "", mrp: "", costPrice: "", stock: "", category: "Dairy", description: "", weight: "", tags: "" }); }}>+ Add</button>
             </div>
             <div className="col gap10">
-                {displayProducts.map(p => (
-                    <div key={p.id} className="p-card" style={{ padding: "14px 16px" }}>
+                {localInventory.map(p => (
+                    <div key={p._id || p.id} className="p-card" style={{ padding: "14px 16px" }}>
                         <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
                             {/* Product image or emoji */}
                             <div style={{ width: 48, height: 48, borderRadius: 10, overflow: "hidden", flexShrink: 0, background: P.surface, border: `1px solid ${P.border}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}
-                                onClick={() => setImgPickerTarget({ id: p.id, name: p.name, currentUrl: p.imageUrl })}>
+                                onClick={() => setImgPickerTarget({ id: p._id || p.id, name: p.name, currentUrl: p.imageUrl })}>
                                 {p.imageUrl
                                     ? <CloudImage src={p.imageUrl} width={100} height={100} alt={p.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} className="product-card-img" />
                                     : <span style={{ fontSize: 24 }}>{p.emoji}</span>
@@ -603,9 +745,12 @@ export function SellerDashboard({ activeTab }) {
                         </div>
                     </div>
                 ))}
-                {hasMore && <InfiniteScrollTrigger onLoadMore={loadMore} loadingMore={false} hasMore={true} />}
             </div>
+            {hasMore && localInventory.length > 0 && (
+                <InfiniteScrollTrigger onIntersect={loadMore} loading={loadingMore} hasMore={hasMore} />
+            )}
         </div>
+        </PullToRefreshWrapper>
         );
     };
 

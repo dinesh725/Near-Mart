@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { P } from "../../theme/theme";
 import { useAuth } from "../../auth/AuthContext";
 import { useStore } from "../../context/GlobalStore";
+import api from "../../api/client";
 
 function Toast({ msg, icon, onDone }) {
     React.useEffect(() => { const t = setTimeout(onDone, 3000); return () => clearTimeout(t); }, [onDone]);
@@ -43,13 +44,19 @@ export function SupportPanel({ activeTab }) {
         setToast({ msg: "Ticket resolved & customer notified ✅", icon: "✅" });
     };
 
-    const handleRefund = () => {
+    const handleRefund = async () => {
+        if (!relatedOrder) return;
+        if (!window.confirm(`Issue refund of ₹${relatedOrder.total || 0} for order ${relatedOrder.id || relatedOrder._id}?`)) return;
         setRefunding(true);
-        setTimeout(() => {
-            setRefunding(false);
-            if (selectedId) sendSupportMessage(selectedId, "Refund of ₹" + (relatedOrder?.total || 0) + " has been processed (3–5 business days).", "agent");
-            setToast({ msg: `Refund ₹${relatedOrder?.total || 0} issued`, icon: "💰" });
-        }, 1500);
+        const orderId = relatedOrder._id || relatedOrder.id;
+        const res = await api.post(`/payments/refund/${orderId}`, { reason: "Support agent refund" });
+        setRefunding(false);
+        if (res.ok) {
+            if (selectedId) sendSupportMessage(selectedId, `Refund of ₹${relatedOrder.total || 0} has been processed (3–5 business days).`, "agent");
+            setToast({ msg: `Refund ₹${relatedOrder.total || 0} issued ✅`, icon: "💰" });
+        } else {
+            setToast({ msg: `Refund failed: ${res.error || "Unknown error"}`, icon: "❌" });
+        }
     };
 
     const statusColor = { open: "p-badge-danger", investigating: "p-badge-warning", resolved: "p-badge-success" };

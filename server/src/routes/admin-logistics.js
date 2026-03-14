@@ -4,11 +4,12 @@ const User = require("../models/User");
 const { authenticate, authorize } = require("../middleware/auth");
 const { NotFound, BadRequest } = require("../utils/errors");
 const { notify } = require("../services/notificationService");
+const AuditLog = require("../models/AuditLog");
 
 const router = express.Router();
 
 // ── Stuck Orders (in READY_FOR_PICKUP > 15 min without rider) ────────────────
-router.get("/stuck-orders", authenticate, authorize("admin"), async (req, res, next) => {
+router.get("/stuck-orders", authenticate, authorize("admin", "super_admin"), async (req, res, next) => {
     try {
         const threshold = new Date(Date.now() - 15 * 60 * 1000);
         const orders = await Order.find({
@@ -21,7 +22,7 @@ router.get("/stuck-orders", authenticate, authorize("admin"), async (req, res, n
 });
 
 // ── Rejected Orders (rejected by multiple riders) ────────────────────────────
-router.get("/rejected-orders", authenticate, authorize("admin"), async (req, res, next) => {
+router.get("/rejected-orders", authenticate, authorize("admin", "super_admin"), async (req, res, next) => {
     try {
         const orders = await Order.find({
             rejectionCount: { $gte: 3 },
@@ -33,7 +34,7 @@ router.get("/rejected-orders", authenticate, authorize("admin"), async (req, res
 });
 
 // ── Escalation Required ──────────────────────────────────────────────────────
-router.get("/escalated-orders", authenticate, authorize("admin"), async (req, res, next) => {
+router.get("/escalated-orders", authenticate, authorize("admin", "super_admin"), async (req, res, next) => {
     try {
         const orders = await Order.find({
             escalationRequired: true,
@@ -45,7 +46,7 @@ router.get("/escalated-orders", authenticate, authorize("admin"), async (req, re
 });
 
 // ── Idle Riders (accepted order but stale activity) ──────────────────────────
-router.get("/idle-riders", authenticate, authorize("admin"), async (req, res, next) => {
+router.get("/idle-riders", authenticate, authorize("admin", "super_admin"), async (req, res, next) => {
     try {
         const tenMinsAgo = new Date(Date.now() - 10 * 60 * 1000);
         const riders = await User.find({
@@ -63,7 +64,7 @@ router.get("/idle-riders", authenticate, authorize("admin"), async (req, res, ne
 });
 
 // ── Manual Dispatch Override ─────────────────────────────────────────────────
-router.post("/manual-dispatch", authenticate, authorize("admin"), async (req, res, next) => {
+router.post("/manual-dispatch", authenticate, authorize("admin", "super_admin"), async (req, res, next) => {
     try {
         const { orderId, riderId } = req.body;
         if (!orderId || !riderId) throw new BadRequest("orderId and riderId required");
@@ -100,12 +101,21 @@ router.post("/manual-dispatch", authenticate, authorize("admin"), async (req, re
         }
         await notify("delivery", `Admin assigned order ${order._id} to you`, "alert", riderId);
 
+        // Audit trail
+        await AuditLog.create({
+            action: "manual_dispatch", actorId: req.user._id,
+            actorName: req.user.name, actorRole: req.user.role,
+            targetId: order._id.toString(), targetType: "order",
+            details: { riderId, riderName: rider.name },
+            ipAddress: req.ip || "unknown",
+        }).catch(() => {});
+
         res.json({ ok: true, msg: "Order manually dispatched", order });
     } catch (err) { next(err); }
 });
 
 // ── Online Riders Overview ───────────────────────────────────────────────────
-router.get("/online-riders", authenticate, authorize("admin"), async (req, res, next) => {
+router.get("/online-riders", authenticate, authorize("admin", "super_admin"), async (req, res, next) => {
     try {
         const riders = await User.find({
             role: "delivery",

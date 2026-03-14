@@ -213,7 +213,7 @@ router.get("/:id", authenticate, async (req, res, next) => {
 
 // ── Confirm Order (seller: PENDING → CONFIRMED) ───────────────────────────────
 router.patch("/:id/confirm",
-    authenticate, authorize("seller", "admin"),
+    authenticate, authorize("seller", "admin", "super_admin"),
     async (req, res, next) => {
         try {
             const order = await Order.findById(req.params.id);
@@ -251,7 +251,7 @@ router.patch("/:id/confirm",
 
 // ── Prepare Order (seller: CONFIRMED → PREPARING) ────────────────────────────
 router.patch("/:id/prepare",
-    authenticate, authorize("seller", "admin"),
+    authenticate, authorize("seller", "admin", "super_admin"),
     async (req, res, next) => {
         try {
             const order = await Order.findById(req.params.id);
@@ -292,7 +292,7 @@ router.patch("/:id/prepare",
 
 // ── Accept Order (legacy alias → same as confirm) ─────────────────────────────
 router.patch("/:id/accept",
-    authenticate, authorize("seller", "admin"),
+    authenticate, authorize("seller", "admin", "super_admin"),
     async (req, res, next) => {
         try {
             const order = await Order.findById(req.params.id);
@@ -325,7 +325,7 @@ router.patch("/:id/accept",
 
 // ── Reject Order & Partial Refund (Seller) ────────────────────────────────────
 router.patch("/:id/reject",
-    authenticate, authorize("seller", "admin"),
+    authenticate, authorize("seller", "admin", "super_admin"),
     async (req, res, next) => {
         try {
             const order = await Order.findById(req.params.id);
@@ -406,7 +406,7 @@ router.patch("/:id/reject",
 
 // ── Ready for Pickup (seller) ─────────────────────────────────────────────────
 router.patch("/:id/ready",
-    authenticate, authorize("seller", "admin"),
+    authenticate, authorize("seller", "admin", "super_admin"),
     async (req, res, next) => {
         try {
             const order = await Order.findById(req.params.id);
@@ -1176,7 +1176,7 @@ router.patch("/:id/request-return",
 
 // ── Approve Return (seller/admin) ─────────────────────────────────────────────
 router.patch("/:id/approve-return",
-    authenticate, authorize("seller", "admin"),
+    authenticate, authorize("seller", "admin", "super_admin"),
     async (req, res, next) => {
         try {
             const order = await Order.findById(req.params.id);

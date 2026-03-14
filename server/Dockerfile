@@ -7,7 +7,7 @@ COPY package*.json ./
 RUN npm ci --production
 
 COPY src/ ./src/
-COPY seed.js ./
+# Security: seed.js intentionally excluded from production image
 COPY .env.example ./.env
 
 EXPOSE 5000

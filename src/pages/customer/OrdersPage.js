@@ -344,31 +344,45 @@ export function OrdersPage({ onTrackOrder, setActiveTab, onReorderToCart, custom
     const [reorderErrors, setReorderErrors] = useState(null);
     const searchTimerRef = useRef(null);
     const orderSentinelRef = useRef(null);
+    const abortControllerRef = useRef(null);
 
     // ── Fetch orders from backend (infinite scroll) ───────────────────────────
     const fetchOrders = useCallback(async (page = 1) => {
         if (page === 1) setLoading(true);
         else setLoadingMore(true);
+        
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+        }
+        const controller = new AbortController();
+        abortControllerRef.current = controller;
+
         try {
             const params = new URLSearchParams({ page, limit: 20 });
             const tab = FILTER_TABS.find(t => t.key === activeFilter);
             if (tab?.statusQuery) params.set("status", tab.statusQuery);
             if (searchQuery) params.set("search", searchQuery);
 
-            const res = await api.get(`/orders?${params}`);
+            const res = await api.get(`/orders?${params}`, { signal: controller.signal });
             if (res.ok) {
                 if (page === 1) {
                     setOrders(res.orders || []);
                 } else {
-                    setOrders(prev => [...prev, ...(res.orders || [])]);
+                    setOrders(prev => {
+                        const existingIds = new Set(prev.map(i => i._id));
+                        return [...prev, ...((res.orders || []).filter(i => !existingIds.has(i._id)))];
+                    });
                 }
                 setPagination(res.pagination || { page: 1, pages: 1, total: 0 });
             }
         } catch (err) {
+            if (err.name === 'AbortError') return;
             console.error("Failed to fetch orders:", err);
         } finally {
-            setLoading(false);
-            setLoadingMore(false);
+            if (abortControllerRef.current === controller) {
+                setLoading(false);
+                setLoadingMore(false);
+            }
         }
     }, [activeFilter, searchQuery]);
 
@@ -381,7 +395,12 @@ export function OrdersPage({ onTrackOrder, setActiveTab, onReorderToCart, custom
     }, []);
 
     // Load on mount and when filters change
-    useEffect(() => { fetchOrders(1); }, [fetchOrders, refreshKey]);
+    useEffect(() => { 
+        fetchOrders(1); 
+        return () => {
+            if (abortControllerRef.current) abortControllerRef.current.abort();
+        };
+    }, [fetchOrders, refreshKey]);
     useEffect(() => { fetchCounts(); }, [fetchCounts, refreshKey]);
 
     // ── Real-time WebSocket: auto-refresh on order status changes ──────────
@@ -391,11 +410,38 @@ export function OrdersPage({ onTrackOrder, setActiveTab, onReorderToCart, custom
 
         const handleStatusUpdate = (data) => {
             console.log("[Orders] Real-time status update:", data);
-            setRefreshKey(k => k + 1);
+            if (!data || (!data.orderId && !data._id)) return;
+            const updatedOrderId = data.orderId || data._id;
+            
+            setOrders(prev => {
+                const idx = prev.findIndex(o => o._id === updatedOrderId);
+                if (idx !== -1) {
+                    const next = [...prev];
+                    next[idx] = { ...next[idx], ...data };
+                    return next;
+                }
+                return prev;
+            });
+            fetchCounts(); // Update badges without resetting pagination
         };
 
-        const handleNewOrder = () => {
-            setRefreshKey(k => k + 1);
+        const handleNewOrder = async (data) => {
+            console.log("[Orders] Real-time new order:", data);
+            const newOrderId = data?.orderId || data?._id;
+            if (newOrderId) {
+                // Fetch just the new order block
+                try {
+                    const res = await api.get(`/orders/${newOrderId}`);
+                    if (res.ok && res.order) {
+                        setOrders(prev => {
+                            const existingIds = new Set(prev.map(i => i._id));
+                            if (existingIds.has(res.order._id)) return prev;
+                            return [res.order, ...prev];
+                        });
+                        fetchCounts();
+                    }
+                } catch(e) {}
+            }
         };
 
         socket.on("deliveryStatusUpdate", handleStatusUpdate);

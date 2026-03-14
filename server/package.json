@@ -31,9 +31,11 @@
         "node-cron": "^4.2.1",
         "nodemailer": "^8.0.1",
         "otp-generator": "^4.0.1",
+        "qrcode": "^1.5.4",
         "razorpay": "^2.9.5",
         "resend": "^6.9.3",
         "socket.io": "^4.8.3",
+        "speakeasy": "^2.0.0",
         "twilio": "^5.12.2"
     },
     "devDependencies": {

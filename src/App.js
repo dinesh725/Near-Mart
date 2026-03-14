@@ -133,7 +133,7 @@ function AppInner() {
   const isKycVerified = user?.kycStatus === "VERIFIED";
 
   let isVerified = false;
-  if (role === "admin" || role === "support") {
+  if (role === "admin" || role === "support" || role === "super_admin") {
     isVerified = true;
   } else if (requiresKyc) {
     isVerified = isContactVerified && isKycVerified;

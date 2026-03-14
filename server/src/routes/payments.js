@@ -13,6 +13,7 @@ const { createRazorpayOrder, verifySignature, verifyWebhookSignature, fetchPayme
 const { notify } = require("../services/notificationService");
 const StockReservation = require("../models/StockReservation");
 const config = require("../config");
+const AuditLog = require("../models/AuditLog");
 const logger = require("../utils/logger");
 
 const RESERVATION_TTL_MS = 10 * 60 * 1000; // 10 minutes
@@ -658,7 +659,7 @@ router.get("/status/:orderId", authenticate, async (req, res, next) => {
 
 // ── Reconciliation — Check Razorpay for missed payments ───────────────────────
 router.post("/reconcile/:orderId",
-    authenticate, authorize("admin", "support"),
+    authenticate, authorize("admin", "super_admin", "support"),
     async (req, res, next) => {
         try {
             const order = await Order.findById(req.params.orderId);
@@ -707,6 +708,16 @@ router.post("/reconcile/:orderId",
                 await notify("customer", `Payment confirmed! ₹${order.total}`, "payment", order.customerId);
 
                 logger.info("Reconciliation: order recovered", { orderId: order._id.toString() });
+
+                // Audit trail
+                await AuditLog.create({
+                    action: "payment_reconciled", actorId: req.user._id,
+                    actorName: req.user.name, actorRole: req.user.role,
+                    targetId: order._id.toString(), targetType: "order",
+                    details: { amount: order.total, razorpayOrderId: rzOrder.id },
+                    ipAddress: req.ip || "unknown",
+                }).catch(() => {});
+
                 return res.json({ ok: true, message: "Payment recovered via reconciliation", order });
             }
 
@@ -722,7 +733,7 @@ router.post("/reconcile/:orderId",
 
 // ── Refund ────────────────────────────────────────────────────────────────────
 router.post("/refund/:orderId",
-    authenticate, authorize("admin", "support"),
+    authenticate, authorize("admin", "super_admin", "support"),
     async (req, res, next) => {
         try {
             const order = await Order.findById(req.params.orderId);
@@ -769,6 +780,15 @@ router.post("/refund/:orderId",
 
             await notify("customer", `Refund of ₹${order.total} processed`, "payment", order.customerId);
 
+            // Audit trail
+            await AuditLog.create({
+                action: "refund_issued", actorId: req.user._id,
+                actorName: req.user.name, actorRole: req.user.role,
+                targetId: order._id.toString(), targetType: "order",
+                details: { amount: order.total, reason: req.body.reason || "Admin/support refund" },
+                ipAddress: req.ip || "unknown",
+            }).catch(() => {}); // Non-blocking
+
             res.json({ ok: true, message: "Refund processed" });
         } catch (err) { next(err); }
     }
@@ -776,7 +796,7 @@ router.post("/refund/:orderId",
 
 // ── Admin: Financial Summary ──────────────────────────────────────────────────
 router.get("/admin/summary",
-    authenticate, authorize("admin"),
+    authenticate, authorize("admin", "super_admin"),
     async (req, res, next) => {
         try {
             const completedTxns = await Transaction.find({ status: "completed", type: "order_payment" });

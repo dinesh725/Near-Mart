@@ -172,10 +172,9 @@ const ROLE_CONFIG = {
     seller: { color: P.success, icon: "🏪", label: "Seller / Retailer", desc: "Manage orders & inventory" },
     vendor: { color: "#F59E0B", icon: "🏭", label: "Vendor / Supplier", desc: "Supply chain & bulk orders" },
     delivery: { color: P.accent, icon: "🛵", label: "Delivery Partner", desc: "Accept & fulfill deliveries" },
-    support: { color: P.warning, icon: "🎧", label: "Support Agent", desc: "Resolve tickets & disputes" },
-    admin: { color: P.purple, icon: "🛡", label: "Admin", desc: "Platform intelligence & controls" },
 };
 
+// Security: Only public-facing roles shown in signup — admin/support require invitation
 const ROLES_LIST = Object.keys(ROLE_CONFIG);
 
 function validate(form) {

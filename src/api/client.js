@@ -76,16 +76,9 @@ const isNativePlatform = () => {
     } catch { return false; }
 };
 
-/**
- * Fetch with timeout.
- * On native Capacitor: uses Promise.race because CapacitorHttp's patched fetch
- * does not properly support AbortController.signal — passing it causes silent
- * failures or "Failed to fetch" errors.
- * On web browser: uses standard AbortController for proper request cancellation.
- */
 function fetchWithTimeout(url, options, timeoutMs = REQUEST_TIMEOUT_MS) {
     if (isNativePlatform()) {
-        // Native: CapacitorHttp patches fetch — don't pass AbortController signal
+        // Native: CapacitorHttp patches fetch — don't pass custom signals if it breaks, but for now we'll pass options as is
         return Promise.race([
             fetch(url, options),
             new Promise((_, reject) =>
@@ -97,6 +90,16 @@ function fetchWithTimeout(url, options, timeoutMs = REQUEST_TIMEOUT_MS) {
     // Web browser: standard AbortController works correctly
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
+    
+    // Connect external signal to the internal controller
+    if (options.signal) {
+        if (options.signal.aborted) {
+            controller.abort();
+        } else {
+            options.signal.addEventListener('abort', () => controller.abort());
+        }
+    }
+
     return fetch(url, { ...options, signal: controller.signal })
         .finally(() => clearTimeout(timer));
 }
@@ -112,12 +115,12 @@ function isRetryable(error, status) {
 }
 
 // ── Request Helper ────────────────────────────────────────────────────────────
-const request = async (method, path, body = null, retry = true) => {
+const request = async (method, path, body = null, retry = true, customOpts = {}) => {
     const url = `${API_BASE}${path}`;
     const headers = { "Content-Type": "application/json" };
     if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
 
-    const options = { method, headers };
+    const options = { method, headers, ...customOpts };
     if (body && method !== "GET") options.body = JSON.stringify(body);
 
     // ── Retry loop with exponential backoff ─────────────────────────────────
@@ -172,10 +175,10 @@ const request = async (method, path, body = null, retry = true) => {
 
 // ── Public API ────────────────────────────────────────────────────────────────
 const api = {
-    get: (path) => request("GET", path),
-    post: (path, body) => request("POST", path, body),
-    patch: (path, body) => request("PATCH", path, body),
-    delete: (path) => request("DELETE", path),
+    get: (path, customOpts = {}) => request("GET", path, null, true, customOpts),
+    post: (path, body, customOpts = {}) => request("POST", path, body, true, customOpts),
+    patch: (path, body, customOpts = {}) => request("PATCH", path, body, true, customOpts),
+    delete: (path, customOpts = {}) => request("DELETE", path, null, true, customOpts),
 
     /** Upload file via multipart/form-data with optional progress callback */
     upload: (path, formData, onProgress) => {

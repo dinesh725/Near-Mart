@@ -17,17 +17,22 @@ const redisClient = require("../config/redis");
 const router = express.Router();
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
+// ── Security: Only these roles may be self-assigned during public registration ──
+const PUBLIC_ROLES = ["customer", "seller", "vendor", "delivery"];
+
 // ── Register ──────────────────────────────────────────────────────────────────
 router.post("/register",
     authLimiter,
     body("name").trim().notEmpty().withMessage("Name is required"),
     body("email").isEmail().withMessage("Valid email required").normalizeEmail(),
     body("password").isLength({ min: 6 }).withMessage("Min 6 characters"),
-    body("role").isIn(User.ROLES).withMessage("Invalid role"),
+    body("role").optional().isIn(PUBLIC_ROLES).withMessage("Invalid role"),
     validate,
     async (req, res, next) => {
         try {
-            const { name, email, password, role } = req.body;
+            const { name, email, password } = req.body;
+            // Security: clamp role to public roles only — admin/support cannot self-register
+            const role = PUBLIC_ROLES.includes(req.body.role) ? req.body.role : "customer";
 
             const exists = await User.findOne({ email });
             if (exists) throw new Conflict("Email already registered");
@@ -48,6 +53,57 @@ router.post("/register",
     }
 );
 
+// ── Accept Staff Invite ───────────────────────────────────────────────────────
+const Invite = require("../models/Invite");
+
+router.post("/accept-invite",
+    authLimiter,
+    body("token").trim().notEmpty().withMessage("Invite token required"),
+    body("name").trim().notEmpty().withMessage("Name is required"),
+    body("password").isLength({ min: 6 }).withMessage("Min 6 characters"),
+    validate,
+    async (req, res, next) => {
+        try {
+            const { token, name, password } = req.body;
+
+            const invite = await Invite.findOne({ token });
+            if (!invite) throw new BadRequest("Invalid invite token");
+            if (!invite.isValid()) throw new BadRequest("Invite has expired or already been used");
+
+            // Check email collision
+            const exists = await User.findOne({ email: invite.email });
+            if (exists) throw new Conflict("An account with this email already exists");
+
+            // Create staff account with the role from the invite
+            const user = await User.create({
+                name,
+                email: invite.email,
+                password,
+                role: invite.role,
+                status: "active",
+                invitedBy: invite.invitedBy,
+                emailVerified: true, // Trusted — invite was sent to this email
+            });
+
+            // Mark invite as used
+            invite.usedAt = new Date();
+            invite.usedBy = user._id;
+            await invite.save();
+
+            const tokens = generateTokens(user._id);
+            user.refreshToken = tokens.refreshToken;
+            await user.save();
+
+            logger.info(`Staff onboarded via invite: ${invite.email} as ${invite.role}`);
+            res.status(201).json({
+                ok: true,
+                user: user.toJSON(),
+                ...tokens,
+            });
+        } catch (err) { next(err); }
+    }
+);
+
 // ── Login ─────────────────────────────────────────────────────────────────────
 router.post("/login",
     authLimiter,
@@ -57,10 +113,44 @@ router.post("/login",
     async (req, res, next) => {
         try {
             const { email, password } = req.body;
-            const user = await User.findOne({ email }).select("+password");
+            const user = await User.findOne({ email }).select("+password +mfaSecret");
 
-            if (!user || !(await user.comparePassword(password)))
+            // ── Suspended account block ──────────────────────────────────
+            if (user && user.status === "suspended") {
+                throw new Unauthorized("Account suspended. Contact support.");
+            }
+
+            // ── Per-account lockout check ────────────────────────────────
+            if (user && user.lockUntil && user.lockUntil > Date.now()) {
+                const minsLeft = Math.ceil((user.lockUntil - Date.now()) / 60000);
+                throw new Unauthorized(`Account locked due to multiple failed login attempts. Try again in ${minsLeft} minutes.`);
+            }
+
+            // ── Credential verification ──────────────────────────────────
+            if (!user || !(await user.comparePassword(password))) {
+                // Track failed attempt (only if user exists)
+                if (user) {
+                    user.loginAttempts = (user.loginAttempts || 0) + 1;
+                    if (user.loginAttempts >= 5) {
+                        user.lockUntil = new Date(Date.now() + 15 * 60 * 1000); // 15 min lock
+                        logger.warn(`Account locked: ${email} after ${user.loginAttempts} failed attempts`);
+                    }
+                    await user.save();
+                }
                 throw new Unauthorized("Invalid email or password");
+            }
+
+            // ── Successful auth — reset lockout counters ─────────────────
+            if (user.loginAttempts > 0 || user.lockUntil) {
+                user.loginAttempts = 0;
+                user.lockUntil = undefined;
+            }
+
+            // ── MFA check for privileged roles ───────────────────────────
+            if (["admin", "super_admin"].includes(user.role) && user.mfaEnabled && user.mfaSecret) {
+                await user.save(); // persist lockout reset
+                return res.json({ ok: true, requireMfa: true, mfaUserId: user._id });
+            }
 
             // OTP Reset failover
             const now = new Date();
@@ -75,6 +165,122 @@ router.post("/login",
             await user.save();
 
             logger.info(`User logged in: ${email}`);
+            res.json({ ok: true, user: user.toJSON(), ...tokens });
+        } catch (err) { next(err); }
+    }
+);
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ── Multi-Factor Authentication (TOTP) ───────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+const speakeasy = require("speakeasy");
+const QRCode = require("qrcode");
+
+/**
+ * POST /api/auth/mfa/setup
+ * Generate a TOTP secret and return QR code for admin/super_admin.
+ */
+router.post("/mfa/setup",
+    authenticate,
+    async (req, res, next) => {
+        try {
+            if (!["admin", "super_admin"].includes(req.user.role)) {
+                throw new BadRequest("MFA is only available for admin and super_admin accounts");
+            }
+            if (req.user.mfaEnabled) {
+                throw new BadRequest("MFA is already enabled for this account");
+            }
+
+            const secret = speakeasy.generateSecret({
+                name: `NearMart (${req.user.email})`,
+                issuer: "NearMart",
+                length: 20,
+            });
+
+            // Save secret temporarily — not enabled until verified
+            await User.findByIdAndUpdate(req.user._id, { mfaSecret: secret.base32 });
+
+            const qrDataUrl = await QRCode.toDataURL(secret.otpauth_url);
+
+            res.json({
+                ok: true,
+                secret: secret.base32,
+                qrCode: qrDataUrl,
+                message: "Scan the QR code with your authenticator app, then verify with a token.",
+            });
+        } catch (err) { next(err); }
+    }
+);
+
+/**
+ * POST /api/auth/mfa/verify
+ * Verify a TOTP token to enable MFA.
+ */
+router.post("/mfa/verify",
+    authenticate,
+    body("token").trim().notEmpty().withMessage("TOTP token required"),
+    validate,
+    async (req, res, next) => {
+        try {
+            const user = await User.findById(req.user._id).select("+mfaSecret");
+            if (!user || !user.mfaSecret) {
+                throw new BadRequest("MFA setup not initiated. Call /mfa/setup first.");
+            }
+
+            const verified = speakeasy.totp.verify({
+                secret: user.mfaSecret,
+                encoding: "base32",
+                token: req.body.token,
+                window: 1, // Allow 1 window of drift (30s each direction)
+            });
+
+            if (!verified) {
+                throw new BadRequest("Invalid TOTP token. Please try again.");
+            }
+
+            user.mfaEnabled = true;
+            await user.save();
+
+            logger.info(`MFA enabled for ${user.email}`);
+            res.json({ ok: true, message: "MFA successfully enabled." });
+        } catch (err) { next(err); }
+    }
+);
+
+/**
+ * POST /api/auth/mfa/login
+ * Complete MFA login — verify TOTP and issue JWT tokens.
+ */
+router.post("/mfa/login",
+    authLimiter,
+    body("mfaUserId").trim().notEmpty().withMessage("User ID required"),
+    body("token").trim().notEmpty().withMessage("TOTP token required"),
+    validate,
+    async (req, res, next) => {
+        try {
+            const { mfaUserId, token } = req.body;
+
+            const user = await User.findById(mfaUserId).select("+mfaSecret");
+            if (!user || !user.mfaEnabled || !user.mfaSecret) {
+                throw new Unauthorized("Invalid MFA session");
+            }
+
+            const verified = speakeasy.totp.verify({
+                secret: user.mfaSecret,
+                encoding: "base32",
+                token,
+                window: 1,
+            });
+
+            if (!verified) {
+                throw new Unauthorized("Invalid TOTP token");
+            }
+
+            const tokens = generateTokens(user._id);
+            user.refreshToken = tokens.refreshToken;
+            await user.save();
+
+            logger.info(`MFA login completed: ${user.email}`);
             res.json({ ok: true, user: user.toJSON(), ...tokens });
         } catch (err) { next(err); }
     }
@@ -205,11 +411,13 @@ router.patch("/profile", authenticate,
 router.post("/google",
     authLimiter,
     body("token").notEmpty().withMessage("Google ID token required"),
-    body("role").optional().isIn(User.ROLES).withMessage("Invalid role"),
+    body("role").optional().isIn(PUBLIC_ROLES).withMessage("Invalid role"),
     validate,
     async (req, res, next) => {
         try {
-            const { token, role } = req.body;
+            const { token } = req.body;
+            // Security: clamp role to public roles only
+            const role = PUBLIC_ROLES.includes(req.body.role) ? req.body.role : "customer";
 
             // Verify Google Token
             const ticket = await googleClient.verifyIdToken({
@@ -230,7 +438,7 @@ router.post("/google",
                     googleId,
                     emailVerified: true, // Trusted from Google
                     profileImage: picture,
-                    role: role || "customer"
+                    role: role
                 });
                 isNewUser = true;
                 logger.info(`New Google user created: ${email}`);
@@ -476,11 +684,13 @@ router.post("/verify-otp",
             if (!user) {
                 // OTP is valid but name is needed to create new account
                 if (!name) return res.status(200).json({ ok: false, needsName: true, message: "Name required to create new account" });
+                // Security: clamp role to public roles only
+                const safeRole = PUBLIC_ROLES.includes(role) ? role : "customer";
                 user = await User.create({
                     name: name.trim(),
                     phone,
                     phoneVerified: true, // OTP verified = phone verified
-                    role: role || "customer",
+                    role: safeRole,
                 });
                 isNewUser = true;
                 logger.info(`New OTP user created: ${phone} as ${user.role}`);

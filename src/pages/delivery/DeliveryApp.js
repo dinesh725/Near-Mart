@@ -7,6 +7,7 @@ import DeliveryMap from "../../components/Map/DeliveryMap";
 import useLiveLocation from "../../hooks/useLiveLocation";
 import OtpModal from "../../components/OtpModal";
 import { PullToRefreshWrapper } from "../../components/ui/PullToRefreshWrapper";
+import { InfiniteScrollTrigger } from "../../components/ui/InfiniteScrollTrigger";
 
 function Toast({ msg, icon, onDone }) {
     React.useEffect(() => { const t = setTimeout(onDone, 3500); return () => clearTimeout(t); }, [onDone]);
@@ -35,6 +36,12 @@ export function DeliveryApp({ activeTab }) {
     const [toast, setToast] = useState(null);
     const [earnings, setEarnings] = useState({ today: 1240, week: 6820, deliveries: 12 });
     const [otpModal, setOtpModal] = useState({ open: false, type: null, digits: 4, title: "" });
+    
+    // Pagination & Infinite Scroll State for Available Tasks
+    const [page, setPage] = useState(1);
+    const [loadingMore, setLoadingMore] = useState(false);
+    const [hasMore, setHasMore] = useState(true);
+    const abortControllerRef = useRef(null);
 
     // Local active order fallback for UI rendering
     const myActiveOrder = orders.find(o => o.riderId === user?.id && o.status === "OUT_FOR_DELIVERY");
@@ -74,43 +81,84 @@ export function DeliveryApp({ activeTab }) {
     }, []);
 
     // ── Fetch available delivery tasks from backend ─────────────────────────
-    const fetchAvailableTasks = useCallback(async (lat, lng) => {
+    const fetchAvailableTasks = useCallback(async (lat, lng, pageNum = 1, isRefresh = false) => {
         try {
             const token = localStorage.getItem("nm_access_token");
             if (!token) return;
 
-            let url = `${process.env.REACT_APP_API_URL || "http://localhost:5000/api"}/orders/available`;
-            if (lat && lng) url += `?lat=${lat}&lng=${lng}`;
+            if (isRefresh) {
+                // reset pagination on manual refresh
+            } else {
+                setLoadingMore(true);
+            }
+
+            if (abortControllerRef.current) abortControllerRef.current.abort();
+            const controller = new AbortController();
+            abortControllerRef.current = controller;
+
+            const limit = 20;
+            let url = `${process.env.REACT_APP_API_URL || "http://localhost:5000/api"}/orders/available?page=${pageNum}&limit=${limit}`;
+            if (lat && lng) url += `&lat=${lat}&lng=${lng}`;
 
             const res = await fetch(url, {
-                headers: { "Authorization": `Bearer ${token}` }
+                headers: { "Authorization": `Bearer ${token}` },
+                signal: controller.signal
             });
             const data = await res.json();
             if (data.ok) {
-                setAvailableOrders(data.orders);
+                const newOrders = data.orders || [];
+                if (pageNum === 1) {
+                    setAvailableOrders(newOrders);
+                } else {
+                    setAvailableOrders(prev => {
+                        const existingIds = new Set(prev.map(o => (o._id || o.id)));
+                        const deduped = newOrders.filter(o => !existingIds.has(o._id || o.id));
+                        return [...prev, ...deduped];
+                    });
+                }
+                setHasMore(newOrders.length === limit);
+                setPage(pageNum);
             }
 
-            // Phase 8: Fetch B2B Jobs asynchronously
-            const b2bRes = await fetch(`${process.env.REACT_APP_API_URL || "http://localhost:5000/api"}/procurement/transit/available`, {
-                headers: { "Authorization": `Bearer ${token}` }
-            });
-            const b2bData = await b2bRes.json();
-            if (b2bData.ok) {
-                const mappedB2B = b2bData.jobs.map(job => ({
-                    _id: job._id,
-                    isB2B: true,
-                    storeName: job.vendorName,
-                    address: `${job.sellerName} [Wholesale Warehouse]`,
-                    items: job.items,
-                    total: job.deliveryFee || 250,
-                    status: "READY_FOR_PICKUP",
-                    pickupLocation: null,
-                    dropLocation: null
-                }));
-                setAvailableB2BOrders(mappedB2B);
+            // Phase 8: Fetch B2B Jobs asynchronously (keep it simple for now, usually fewer B2B jobs)
+            if (pageNum === 1) {
+                const b2bRes = await fetch(`${process.env.REACT_APP_API_URL || "http://localhost:5000/api"}/procurement/transit/available`, {
+                    headers: { "Authorization": `Bearer ${token}` }
+                });
+                const b2bData = await b2bRes.json();
+                if (b2bData.ok) {
+                    const mappedB2B = b2bData.jobs.map(job => ({
+                        _id: job._id,
+                        isB2B: true,
+                        storeName: job.vendorName,
+                        address: `${job.sellerName} [Wholesale Warehouse]`,
+                        items: job.items,
+                        total: job.deliveryFee || 250,
+                        status: "READY_FOR_PICKUP",
+                        pickupLocation: null,
+                        dropLocation: null
+                    }));
+                    setAvailableB2BOrders(mappedB2B);
+                }
             }
 
-        } catch (err) { console.error("Failed to fetch tasks", err); }
+        } catch (err) { 
+            if (err.name === 'AbortError') return;
+            console.error("Failed to fetch tasks", err); 
+        } finally {
+            setLoadingMore(false);
+        }
+    }, []);
+
+    const loadMoreTasks = useCallback(() => {
+        if (!loadingMore && hasMore && online) {
+            fetchAvailableTasks(liveLocation?.lat, liveLocation?.lng, page + 1);
+        }
+    }, [loadingMore, hasMore, online, liveLocation, page, fetchAvailableTasks]);
+
+    // Initial load cleanup
+    useEffect(() => {
+        return () => { if (abortControllerRef.current) abortControllerRef.current.abort(); };
     }, []);
 
     // Socket connection for geofence validation — use shared singleton
@@ -644,6 +692,14 @@ export function DeliveryApp({ activeTab }) {
                     </div>
                 );
             })}
+
+            {taskTypeTab === "b2c" && hasMore && online && (taskTypeTab === "b2c" ? readyOrders : availableB2BOrders).length > 0 && (
+                <InfiniteScrollTrigger 
+                    onIntersect={loadMoreTasks} 
+                    loading={loadingMore} 
+                    hasMore={hasMore} 
+                />
+            )}
         </div>
         </PullToRefreshWrapper>
     );

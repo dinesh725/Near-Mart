@@ -79,7 +79,7 @@ router.post("/:id/message",
 
 // ── Resolve Ticket ────────────────────────────────────────────────────────────
 router.patch("/:id/resolve",
-    authenticate, authorize("support", "admin"),
+    authenticate, authorize("support", "admin", "super_admin"),
     async (req, res, next) => {
         try {
             const ticket = await Ticket.findById(req.params.id);
@@ -95,7 +95,7 @@ router.patch("/:id/resolve",
 
 // ── Escalate Ticket ───────────────────────────────────────────────────────────
 router.patch("/:id/escalate",
-    authenticate, authorize("support", "admin"),
+    authenticate, authorize("support", "admin", "super_admin"),
     async (req, res, next) => {
         try {
             const ticket = await Ticket.findById(req.params.id);

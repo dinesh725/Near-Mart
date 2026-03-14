@@ -40,6 +40,30 @@ const authorize = (...roles) => (req, res, next) => {
 };
 
 /**
+ * Hierarchical role access for internal staff routes.
+ * Higher-level roles automatically inherit access to lower-level routes.
+ *
+ * Hierarchy: super_admin (3) > admin (2) > support (1)
+ *
+ * Usage: authorizeHierarchy("admin") → allows admin AND super_admin
+ *        authorizeHierarchy("super_admin") → allows only super_admin
+ */
+const ROLE_LEVEL = {
+    support: 1,
+    admin: 2,
+    super_admin: 3,
+};
+
+const authorizeHierarchy = (minimumRole) => (req, res, next) => {
+    if (!req.user) return next(new Unauthorized());
+    const userLevel = ROLE_LEVEL[req.user.role] || 0;
+    const requiredLevel = ROLE_LEVEL[minimumRole] || 0;
+    if (userLevel < requiredLevel)
+        return next(new Forbidden(`Role '${req.user.role}' does not have sufficient privileges`));
+    next();
+};
+
+/**
  * Require account verification (Email, Phone, or Google).
  */
 const requireVerification = (req, res, next) => {
@@ -65,4 +89,5 @@ const generateTokens = (userId) => {
     return { accessToken, refreshToken };
 };
 
-module.exports = { authenticate, authorize, requireVerification, generateTokens };
+module.exports = { authenticate, authorize, authorizeHierarchy, requireVerification, generateTokens };
+

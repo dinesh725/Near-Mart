@@ -13,7 +13,7 @@ const router = express.Router();
 
 // ── Create Procurement Request ────────────────────────────────────────────────
 router.post("/",
-    authenticate, authorize("seller", "admin"),
+    authenticate, authorize("seller", "admin", "super_admin"),
     (req, res, next) => { logger.debug("Incoming PO payload", { body: req.body }); next(); },
     body("items").isArray({ min: 1 }),
     body("items.*.productName").notEmpty(),
@@ -79,7 +79,7 @@ router.get("/", authenticate, async (req, res, next) => {
 
 // ── Vendor Accept Procurement ──────────────────────────────────────────────────
 router.patch("/:id/accept",
-    authenticate, authorize("vendor", "admin"),
+    authenticate, authorize("vendor", "admin", "super_admin"),
     async (req, res, next) => {
         try {
             const proc = await Procurement.findById(req.params.id);

@@ -225,7 +225,7 @@ router.get("/:id", async (req, res, next) => {
 
 // ── Create Product (seller/admin) ─────────────────────────────────────────────
 router.post("/",
-    authenticate, authorize("seller", "admin"),
+    authenticate, authorize("seller", "admin", "super_admin"),
     body("name").trim().notEmpty().withMessage("Name is required"),
     body("category").trim().notEmpty().withMessage("Category is required"),
     body("sellingPrice").isFloat({ min: 0 }).withMessage("Price must be ≥ 0"),
@@ -245,7 +245,7 @@ router.post("/",
 
 // ── Update Product (seller/admin) ─────────────────────────────────────────────
 router.patch("/:id",
-    authenticate, authorize("seller", "admin"),
+    authenticate, authorize("seller", "admin", "super_admin"),
     async (req, res, next) => {
         try {
             const productToUpdate = await Product.findById(req.params.id);
@@ -268,7 +268,7 @@ router.patch("/:id",
 
 // ── Update Stock ──────────────────────────────────────────────────────────────
 router.patch("/:id/stock",
-    authenticate, authorize("seller", "admin"),
+    authenticate, authorize("seller", "admin", "super_admin"),
     body("delta").isInt().withMessage("Delta must be an integer"),
     validate,
     async (req, res, next) => {
@@ -290,13 +290,13 @@ router.patch("/:id/stock",
 
 // ── Delete Product (admin / seller) ──────────────────────────────────────────
 router.delete("/:id",
-    authenticate, authorize("admin", "seller"),
+    authenticate, authorize("admin", "super_admin", "seller"),
     async (req, res, next) => {
         try {
             const product = await Product.findById(req.params.id);
             if (!product) throw new NotFound("Product not found");
 
-            if (req.user.role !== "admin" && product.sellerId.toString() !== req.user._id.toString()) {
+            if (req.user.role !== "admin" && req.user.role !== "super_admin" && product.sellerId.toString() !== req.user._id.toString()) {
                 throw new NotFound("Product not found or unauthorized to delete");
             }
 
@@ -389,7 +389,7 @@ router.post("/:id/rate",
 
 // ── Update Product Images (seller/admin) ──────────────────────────────────────
 router.patch("/:id/images",
-    authenticate, authorize("seller", "admin"),
+    authenticate, authorize("seller", "admin", "super_admin"),
     body("images").isArray({ max: 5 }).withMessage("Up to 5 image URLs allowed"),
     body("images.*").isURL().withMessage("Each image must be a valid URL"),
     validate,

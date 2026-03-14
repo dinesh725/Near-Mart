@@ -174,6 +174,7 @@ export function CustomerApp({ activeTab, setActiveTab }) {
     const [hasMoreProducts, setHasMoreProducts] = useState(false);
     const [loadingMore, setLoadingMore] = useState(false);
     const sentinelRef = useRef(null);
+    const abortControllerRef = useRef(null);
 
     // Helper: transform grouped backend data to display items
     const mapGroupedToProducts = useCallback((grouped) => {
@@ -202,6 +203,12 @@ export function CustomerApp({ activeTab, setActiveTab }) {
         if (page === 1) setLoading(true);
         else setLoadingMore(true);
 
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+        }
+        const controller = new AbortController();
+        abortControllerRef.current = controller;
+
         try {
             const params = new URLSearchParams({
                 lat: customerGps.lat, lng: customerGps.lng, sort: "distance",
@@ -210,7 +217,9 @@ export function CustomerApp({ activeTab, setActiveTab }) {
             if (search) params.append("q", search);
             if (category !== "All") params.append("category", category);
 
-            const res = await fetch(`${process.env.REACT_APP_API_URL || "http://localhost:5000/api"}/products/search?${params}`);
+            const res = await fetch(`${process.env.REACT_APP_API_URL || "http://localhost:5000/api"}/products/search?${params}`, {
+                signal: controller.signal
+            });
             const data = await res.json();
 
             if (data.ok && data.grouped) {
@@ -219,16 +228,22 @@ export function CustomerApp({ activeTab, setActiveTab }) {
                     setLiveProducts(newItems);
                     setNoLocalSellers(newItems.length === 0 && data.totalGroups === 0);
                 } else {
-                    setLiveProducts(prev => [...prev, ...newItems]);
+                    setLiveProducts(prev => {
+                        const existingIds = new Set(prev.map(i => i.id));
+                        return [...prev, ...newItems.filter(i => !existingIds.has(i.id))];
+                    });
                 }
                 setHasMoreProducts(data.hasMore === true);
                 setProductPage(page);
             }
         } catch (err) {
+            if (err.name === 'AbortError') return;
             if (page === 1) setLiveProducts([]);
         } finally {
-            setLoading(false);
-            setLoadingMore(false);
+            if (abortControllerRef.current === controller) {
+                setLoading(false);
+                setLoadingMore(false);
+            }
         }
     }, [customerGps, search, category, mapGroupedToProducts]);
 
@@ -238,6 +253,10 @@ export function CustomerApp({ activeTab, setActiveTab }) {
         setProductPage(1);
         setHasMoreProducts(false);
         fetchProductsPage(1);
+        
+        return () => {
+            if (abortControllerRef.current) abortControllerRef.current.abort();
+        };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [customerGps, search, category, gpsStatus]);
 

@@ -1,13 +1,15 @@
 const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
 
-const ROLES = ["customer", "seller", "vendor", "delivery", "support", "admin"];
+const ROLES = ["customer", "seller", "vendor", "delivery", "support", "admin", "super_admin"];
 
 const userSchema = new mongoose.Schema({
     name: { type: String, required: true, trim: true },
     email: { type: String, unique: true, sparse: true, lowercase: true, trim: true },
     password: { type: String, select: false },
     role: { type: String, enum: ROLES, required: true, index: true },
+    status: { type: String, enum: ["active", "suspended", "invited"], default: "active", index: true },
+    invitedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     phone: { type: String, sparse: true, index: true },
     address: { type: String, default: "" },
     // ── Common Location (Used by all) ──────────────────────────────────
@@ -100,6 +102,12 @@ const userSchema = new mongoose.Schema({
     rejectionCount: { type: Number, default: 0 },
     lastRejectionAt: { type: Date },
     dispatchCooldownUntil: { type: Date },
+    // ── Per-Account Login Lockout ────────────────────────────────────
+    loginAttempts: { type: Number, default: 0 },
+    lockUntil: { type: Date },
+    // ── MFA (TOTP) ──────────────────────────────────────────────────
+    mfaEnabled: { type: Boolean, default: false },
+    mfaSecret: { type: String, select: false },
 }, { timestamps: true });
 
 // Hash password before save

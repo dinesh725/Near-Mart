@@ -1,8 +1,18 @@
 /**
  * Seed script — Populates MongoDB with NearMart demo data.
  * Run: cd server && node seed.js
+ *
+ * SAFETY: This script CANNOT run in production.
  */
 require("dotenv").config();
+
+// ── Production guard ─────────────────────────────────────────────────────────
+if (process.env.NODE_ENV === "production") {
+    console.error("🚫 FATAL: Seed script cannot run in production environment.");
+    console.error("   Set NODE_ENV=development to run this script.");
+    process.exit(1);
+}
+
 const mongoose = require("mongoose");
 const User = require("./src/models/User");
 const Product = require("./src/models/Product");
@@ -13,9 +23,9 @@ const DEMO_USERS = [
     { name: "Priya Sharma", email: "demo.customer@nearmart.in", password: "demo123", role: "customer", avatar: "PS", address: "12, Linking Road, Bandra West, Mumbai", walletBalance: 2500, loyaltyPoints: 420, totalOrders: 8, emailVerified: true, phoneVerified: true },
     { name: "Raj Patel", email: "demo.seller@nearmart.in", password: "demo123", role: "seller", avatar: "RP", storeId: "STORE-412", storeName: "Dark Store #412", emailVerified: true, phoneVerified: true },
     { name: "Global Foods Ltd", email: "demo.vendor@nearmart.in", password: "demo123", role: "vendor", avatar: "GF", supplierId: "SUP-001", companyName: "Global Foods Ltd", emailVerified: true, phoneVerified: true },
-    { name: "Vikram Singh", email: "demo.delivery@nearmart.in", password: "demo123", role: "delivery", avatar: "VS", vehicleType: "Bike", vehicleNo: "MH-04-AB-1234", rating: 4.8, emailVerified: true, phoneVerified: true },
+    { name: "Vikram Singh", email: "demo.delivery@nearmart.in", password: "demo123", role: "delivery", avatar: "VS", vehicleType: "bike", vehicleNo: "MH-04-AB-1234", rating: 4.8, emailVerified: true, phoneVerified: true },
     { name: "Meera Joshi", email: "demo.support@nearmart.in", password: "demo123", role: "support", avatar: "MJ", department: "Customer Support", emailVerified: true, phoneVerified: true },
-    { name: "Admin NM", email: "demo.admin@nearmart.in", password: "demo123", role: "admin", avatar: "AN", accessLevel: "super", emailVerified: true, phoneVerified: true },
+    { name: "Admin NM", email: "demo.admin@nearmart.in", password: "demo123", role: "super_admin", avatar: "AN", accessLevel: "super", emailVerified: true, phoneVerified: true },
 ];
 
 const DEMO_PRODUCTS = [
@@ -35,11 +45,15 @@ const seed = async () => {
         await mongoose.connect(config.mongoUri);
         console.log("✅ Connected");
 
-        // Clear existing
-        await User.deleteMany({});
-        await Product.deleteMany({});
-        await Notification.deleteMany({});
-        console.log("🗑  Cleared existing data");
+        // Only wipe data in development environments
+        if (process.env.NODE_ENV === "development" || !process.env.NODE_ENV) {
+            await User.deleteMany({});
+            await Product.deleteMany({});
+            await Notification.deleteMany({});
+            console.log("🗑  Cleared existing data (development mode)");
+        } else {
+            console.log("⚠  Skipping data wipe (non-production, non-development environment)");
+        }
 
         // Create users
         const users = [];
@@ -61,12 +75,13 @@ const seed = async () => {
             { forRole: "customer", type: "info", msg: "Welcome to NearMart! Browse fresh groceries near you." },
             { forRole: "seller", type: "info", msg: "Your Dark Store #412 is ready for orders." },
             { forRole: "delivery", type: "info", msg: "Welcome aboard, partner! Deliveries are waiting." },
-            { forRole: "admin", type: "info", msg: "NearMart backend is live. All systems operational." },
+            { forRole: "super_admin", type: "info", msg: "NearMart backend is live. All systems operational." },
         ]);
         console.log("🔔 Created welcome notifications");
 
         console.log("\n🎉 Seed complete! Demo credentials:");
         console.log("   All demo users use password: demo123");
+        console.log("   Super Admin: demo.admin@nearmart.in / demo123");
         console.log("   Example: demo.customer@nearmart.in / demo123");
 
         await mongoose.connection.close();

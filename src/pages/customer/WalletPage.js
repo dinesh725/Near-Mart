@@ -1,9 +1,10 @@
-import React, { useState, useMemo, useCallback, useEffect } from "react";
+import React, { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import ReactDOM from "react-dom";
 import { useAuth } from "../../auth/AuthContext";
 import { P } from "../../theme/theme";
 import { PullToRefreshWrapper } from "../../components/ui/PullToRefreshWrapper";
 import { InfiniteScrollTrigger } from "../../components/ui/InfiniteScrollTrigger";
+import { Virtuoso } from "react-virtuoso";
 
 const API_BASE = process.env.REACT_APP_API_URL || "http://localhost:5000/api";
 
@@ -41,12 +42,18 @@ export function WalletPage() {
     // Pre-load Razorpay script
     useEffect(() => { loadRazorpayScript(); }, []);
 
+    const abortControllerRef = useRef(null);
+
     const fetchTxns = useCallback(async (pageNum = 1, isRefresh = false) => {
         if (isRefresh) {
             setLoadingTxns(true);
         } else {
             setLoadingMore(true);
         }
+
+        if (abortControllerRef.current) abortControllerRef.current.abort();
+        const controller = new AbortController();
+        abortControllerRef.current = controller;
 
         try {
             const token = localStorage.getItem("nm_access_token");
@@ -55,6 +62,7 @@ export function WalletPage() {
             const limit = 15;
             const res = await fetch(`${API_BASE}/wallet/transactions?page=${pageNum}&limit=${limit}`, {
                 headers: { "Authorization": `Bearer ${token}` },
+                signal: controller.signal
             });
             const data = await res.json();
             
@@ -96,6 +104,9 @@ export function WalletPage() {
     // Initial Load & subsequent refreshed
     useEffect(() => {
         fetchTxns(1, true);
+        return () => {
+            if (abortControllerRef.current) abortControllerRef.current.abort();
+        };
     }, [fetchTxns, addResult]);
 
     const reloadWalletData = useCallback(async () => {
@@ -196,6 +207,41 @@ export function WalletPage() {
     const totalCredits = useMemo(() => transactions.filter(t => t.type === "credit").reduce((s, t) => s + t.amount, 0), [transactions]);
     const totalDebits = useMemo(() => transactions.filter(t => t.type === "debit").reduce((s, t) => s + t.amount, 0), [transactions]);
 
+    const sortedTxns = useMemo(() => [...transactions].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)), [transactions]);
+
+    const itemContent = (index) => {
+        const txn = sortedTxns[index];
+        return (
+            <div style={{ paddingBottom: 8 }}>
+                <div style={{
+                    display: "flex", alignItems: "center", gap: 12,
+                    padding: "14px 16px", background: P.card,
+                    border: `1px solid ${P.border}`, borderRadius: 14,
+                }}>
+                    <div style={{
+                        width: 42, height: 42, borderRadius: 12,
+                        background: txn.type === "credit" ? `${P.success}15` : `${P.danger}15`,
+                        display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0
+                    }}>
+                        {categoryIcon[txn.category] || "💰"}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 600, fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{categoryLabel[txn.category] || txn.category}</div>
+                        <div style={{ fontSize: 11, color: P.textMuted, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{txn.note}</div>
+                    </div>
+                    <div style={{ textAlign: "right", flexShrink: 0 }}>
+                        <div style={{ fontWeight: 700, fontSize: 14, color: txn.type === "credit" ? P.success : P.danger }}>
+                            {txn.type === "credit" ? "+" : "−"}₹{txn.amount}
+                        </div>
+                        <div style={{ fontSize: 10, color: P.textMuted, marginTop: 2 }}>
+                            {new Date(txn.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
     return (
         <PullToRefreshWrapper onRefresh={reloadWalletData}>
         <div className="col gap16">
@@ -250,40 +296,22 @@ export function WalletPage() {
                     </div>
                 ) : (
                     <div className="col gap8">
-                        {transactions.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).map(txn => (
-                            <div key={txn._id} style={{
-                                display: "flex", alignItems: "center", gap: 12,
-                                padding: "14px 16px", background: P.card,
-                                border: `1px solid ${P.border}`, borderRadius: 14,
-                            }}>
-                                <div style={{
-                                    width: 42, height: 42, borderRadius: 12,
-                                    background: txn.type === "credit" ? `${P.success}15` : `${P.danger}15`,
-                                    display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20,
-                                }}>
-                                    {categoryIcon[txn.category] || "💰"}
-                                </div>
-                                <div style={{ flex: 1 }}>
-                                    <div style={{ fontWeight: 600, fontSize: 13 }}>{categoryLabel[txn.category] || txn.category}</div>
-                                    <div style={{ fontSize: 11, color: P.textMuted, marginTop: 2 }}>{txn.note}</div>
-                                </div>
-                                <div style={{ textAlign: "right" }}>
-                                    <div style={{ fontWeight: 700, fontSize: 14, color: txn.type === "credit" ? P.success : P.danger }}>
-                                        {txn.type === "credit" ? "+" : "−"}₹{txn.amount}
-                                    </div>
-                                    <div style={{ fontSize: 10, color: P.textMuted, marginTop: 2 }}>
-                                        {new Date(txn.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
-                                    </div>
-                                </div>
-                            </div>
-                        ))}
-                        {transactions.length === 0 && (
+                        {transactions.length === 0 ? (
                             <div style={{ textAlign: "center", padding: "40px 0", color: P.textMuted }}>
                                 No transactions yet
                             </div>
+                        ) : (
+                            <Virtuoso
+                                style={{ height: "500px" }}
+                                data={sortedTxns}
+                                endReached={fetchNextPage}
+                                itemContent={(index) => itemContent(index)}
+                            />
                         )}
-                        {!loadingTxns && transactions.length > 0 && (
-                            <InfiniteScrollTrigger onLoadMore={fetchNextPage} loadingMore={loadingMore} hasMore={hasMore} />
+                        {loadingMore && (
+                            <div style={{ textAlign: "center", padding: "10px 0", color: P.textMuted }}>
+                                <span className="spinner" style={{ width: 16, height: 16, marginRight: 8 }} /> Loading older transactions...
+                            </div>
                         )}
                     </div>
                 )}

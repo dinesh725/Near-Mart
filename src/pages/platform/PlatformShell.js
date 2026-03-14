@@ -20,7 +20,8 @@ const ROLE_META = {
     vendor: { label: "Vendor Portal", icon: "🏭", color: "#F59E0B", component: VendorPortal, tabs: [{ i: "📊", l: "Supply" }, { i: "📋", l: "Requests" }, { i: "📦", l: "Stock" }, { i: "📈", l: "Insights" }, { i: "👤", l: "Profile" }] },
     delivery: { label: "Delivery App", icon: "🛵", color: P.accent, component: DeliveryApp, tabs: [{ i: "🗺", l: "Map" }, { i: "📋", l: "Tasks" }, { i: "💸", l: "Earnings" }, { i: "⚙", l: "Settings" }, { i: "👤", l: "Profile" }] },
     support: { label: "Resolution Center", icon: "🎧", color: P.warning, component: SupportPanel, tabs: [{ i: "📫", l: "Inbox" }, { i: "📞", l: "Live" }, { i: "📝", l: "Macros" }, { i: "📈", l: "Stats" }, { i: "👤", l: "Profile" }] },
-    admin: { label: "Platform Intel", icon: "🛡", color: P.purple, component: AdminDashboard, tabs: [{ i: "🌍", l: "Overview" }, { i: "👥", l: "Users" }, { i: "📋", l: "Orders" }, { i: "🔒", l: "Logs" }, { i: "👤", l: "Profile" }] },
+    admin: { label: "Platform Intel", icon: "🛡", color: P.purple, component: AdminDashboard, tabs: [{ i: "🌍", l: "Overview" }, { i: "👥", l: "Users" }, { i: "📋", l: "Orders" }, { i: "🔒", l: "Logs" }, { i: "📑", l: "KYC" }, { i: "💹", l: "Finance" }, { i: "🚚", l: "Logistics" }, { i: "👤", l: "Profile" }] },
+    super_admin: { label: "Super Admin", icon: "⚡", color: P.purple, component: AdminDashboard, tabs: [{ i: "🌍", l: "Overview" }, { i: "👥", l: "Users" }, { i: "📋", l: "Orders" }, { i: "🔒", l: "Logs" }, { i: "📑", l: "KYC" }, { i: "💹", l: "Finance" }, { i: "🚚", l: "Logistics" }, { i: "👤", l: "Profile" }] },
 };
 
 // ── Time formatter ─────────────────────────────────────────────────────────────

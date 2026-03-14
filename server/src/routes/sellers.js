@@ -54,7 +54,7 @@ router.get("/nearby", async (req, res, next) => {
 
 // ── Seller Onboarding ─────────────────────────────────────────────────────────
 // PATCH /api/sellers/onboard
-router.patch("/onboard", authenticate, authorize("seller", "admin"),
+router.patch("/onboard", authenticate, authorize("seller", "admin", "super_admin"),
     body("storeName").optional().trim(),
     body("storeDescription").optional().trim(),
     body("storePhone").optional().trim(),

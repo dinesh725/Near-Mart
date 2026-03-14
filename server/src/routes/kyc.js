@@ -25,7 +25,7 @@ router.get('/upload-url', authMiddleware, async (req, res) => {
 const User = require('../models/User');
 
 // Admin ONLY: Fetch document image for review
-router.get('/read-url/:id', authMiddleware, roleGuard('ADMIN'), async (req, res) => {
+router.get('/read-url/:id', authMiddleware, roleGuard('admin', 'super_admin'), async (req, res) => {
     try {
         const documentIdentifier = req.params.id; // Usually a storage key/path
         const result = await generateReadUrl(documentIdentifier);
@@ -40,7 +40,7 @@ router.get('/read-url/:id', authMiddleware, roleGuard('ADMIN'), async (req, res)
 // Admin ONLY: Update KYC Status
 router.patch('/admin/:userId', authMiddleware, async (req, res) => {
     // Task 3: Add Authorization Protection
-    if (req.user.role !== "admin") {
+    if (req.user.role !== "admin" && req.user.role !== "super_admin") {
         return res.status(403).json({ error: "Forbidden: Admin access required" });
     }
 
@@ -82,6 +82,18 @@ router.patch('/admin/:userId', authMiddleware, async (req, res) => {
         }
 
         await user.save();
+
+        // Audit trail
+        const AuditLog = require('../models/AuditLog');
+        await AuditLog.create({
+            action: "kyc_status_change", actorId: req.user._id,
+            actorName: req.user.name, actorRole: req.user.role,
+            targetId: userId, targetType: "user",
+            details: { previousStatus: validNextStates.length > 0 ? "transition" : "unknown", newStatus: kycStatus, userName: user.name },
+            newState: { kycStatus },
+            ipAddress: req.ip || "unknown",
+        }).catch(() => {});
+
         res.json({ ok: true, user: user.toJSON() });
     } catch (e) {
         res.status(500).json({ error: e.message });
