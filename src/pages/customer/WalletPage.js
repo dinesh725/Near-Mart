@@ -2,6 +2,8 @@ import React, { useState, useMemo, useCallback, useEffect } from "react";
 import ReactDOM from "react-dom";
 import { useAuth } from "../../auth/AuthContext";
 import { P } from "../../theme/theme";
+import { PullToRefreshWrapper } from "../../components/ui/PullToRefreshWrapper";
+import { InfiniteScrollTrigger } from "../../components/ui/InfiniteScrollTrigger";
 
 const API_BASE = process.env.REACT_APP_API_URL || "http://localhost:5000/api";
 
@@ -21,45 +23,90 @@ function loadRazorpayScript() {
  * Wallet Page — Balance, Add Money via Razorpay, Transaction History
  */
 export function WalletPage() {
-    const { user } = useAuth();
+    const { user, refreshUser } = useAuth(); // Import refreshUser to update wallet balance
     const [showAddMoney, setShowAddMoney] = useState(false);
     const [addAmount, setAddAmount] = useState("");
     const [addingMoney, setAddingMoney] = useState(false);
     const [addResult, setAddResult] = useState(null);
     const [transactions, setTransactions] = useState([]);
     const [loadingTxns, setLoadingTxns] = useState(false);
+    
+    // Pagination & Infinite Scroll State
+    const [page, setPage] = useState(1);
+    const [loadingMore, setLoadingMore] = useState(false);
+    const [hasMore, setHasMore] = useState(true);
 
     const balance = user?.walletBalance ?? 2500;
 
     // Pre-load Razorpay script
     useEffect(() => { loadRazorpayScript(); }, []);
 
-    // Fetch wallet transactions from backend
-    useEffect(() => {
-        const fetchTxns = async () => {
+    const fetchTxns = useCallback(async (pageNum = 1, isRefresh = false) => {
+        if (isRefresh) {
             setLoadingTxns(true);
-            try {
-                const token = localStorage.getItem("nm_access_token");
-                if (!token) throw new Error("Local session — skipping backend wallet txns");
-                const res = await fetch(`${API_BASE}/wallet/transactions`, {
-                    headers: { "Authorization": `Bearer ${token}` },
-                });
-                const data = await res.json();
-                if (data.ok) setTransactions(data.transactions);
-            } catch {
-                // Fallback demo data if backend unavailable
+        } else {
+            setLoadingMore(true);
+        }
+
+        try {
+            const token = localStorage.getItem("nm_access_token");
+            if (!token) throw new Error("Local session — skipping backend wallet txns");
+            
+            const limit = 15;
+            const res = await fetch(`${API_BASE}/wallet/transactions?page=${pageNum}&limit=${limit}`, {
+                headers: { "Authorization": `Bearer ${token}` },
+            });
+            const data = await res.json();
+            
+            if (data.ok) {
+                const newItems = data.transactions || [];
+                
+                if (isRefresh) {
+                    setTransactions(newItems);
+                    setHasMore(newItems.length === limit);
+                    setPage(1);
+                } else {
+                    setTransactions(prev => {
+                        const existingIds = new Set(prev.map(i => i._id));
+                        const deduped = newItems.filter(i => !existingIds.has(i._id));
+                        return [...prev, ...deduped];
+                    });
+                    setHasMore(newItems.length === limit);
+                    setPage(pageNum);
+                }
+
+                if (isRefresh && refreshUser) {
+                    await refreshUser(); // Grab newest main user object balances over REST
+                }
+            }
+        } catch {
+            if (isRefresh) {
                 setTransactions([
                     { _id: "1", type: "credit", category: "welcome_bonus", amount: 500, note: "Welcome bonus", createdAt: new Date(Date.now() - 86400000 * 5).toISOString(), balanceAfter: 500 },
                     { _id: "2", type: "credit", category: "add_money", amount: 2000, note: "Added via Razorpay", createdAt: new Date(Date.now() - 86400000 * 3).toISOString(), balanceAfter: 2500 },
-                    { _id: "3", type: "debit", category: "order_payment", amount: 245, note: "Order ORD-0001", createdAt: new Date(Date.now() - 86400000).toISOString(), balanceAfter: 2255 },
-                    { _id: "4", type: "credit", category: "refund", amount: 245, note: "Refund for ORD-0001", createdAt: new Date(Date.now() - 3600000).toISOString(), balanceAfter: 2500 },
                 ]);
-            } finally {
-                setLoadingTxns(false);
+                setHasMore(false);
             }
-        };
-        fetchTxns();
-    }, [addResult]); // Refresh after adding money
+        } finally {
+            setLoadingTxns(false);
+            setLoadingMore(false);
+        }
+    }, [refreshUser]);
+
+    // Initial Load & subsequent refreshed
+    useEffect(() => {
+        fetchTxns(1, true);
+    }, [fetchTxns, addResult]);
+
+    const reloadWalletData = useCallback(async () => {
+        await fetchTxns(1, true);
+    }, [fetchTxns]);
+
+    const fetchNextPage = useCallback(() => {
+        if (!loadingMore && hasMore) {
+            fetchTxns(page + 1, false);
+        }
+    }, [fetchTxns, loadingMore, hasMore, page]);
 
     const presetAmounts = [100, 250, 500, 1000, 2000, 5000];
 
@@ -150,6 +197,7 @@ export function WalletPage() {
     const totalDebits = useMemo(() => transactions.filter(t => t.type === "debit").reduce((s, t) => s + t.amount, 0), [transactions]);
 
     return (
+        <PullToRefreshWrapper onRefresh={reloadWalletData}>
         <div className="col gap16">
             {/* Balance Card */}
             <div style={{
@@ -234,6 +282,9 @@ export function WalletPage() {
                                 No transactions yet
                             </div>
                         )}
+                        {!loadingTxns && transactions.length > 0 && (
+                            <InfiniteScrollTrigger onLoadMore={fetchNextPage} loadingMore={loadingMore} hasMore={hasMore} />
+                        )}
                     </div>
                 )}
             </div>
@@ -315,6 +366,7 @@ export function WalletPage() {
                 document.body
             )}
         </div>
+        </PullToRefreshWrapper>
     );
 }
 

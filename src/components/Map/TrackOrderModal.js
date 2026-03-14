@@ -3,10 +3,13 @@ import ReactDOM from 'react-dom';
 import DeliveryMap from './DeliveryMap';
 import useLiveLocation from '../../hooks/useLiveLocation';
 import { P } from '../../theme/theme';
+import { useStore } from '../../context/GlobalStore';
+import { PullToRefreshWrapper } from '../ui/PullToRefreshWrapper';
 
 export function TrackOrderModal({ order, onClose }) {
     const orderId = order?._id || order?.id;
     const { liveLocation, socketState } = useLiveLocation(orderId, 'customer');
+    const { fetchOrders } = useStore();
     const [routeInfo, setRouteInfo] = useState({
         distance: order?.deliveryDistance || 0,
         duration: order?.estimatedArrivalTime ? (new Date(order.estimatedArrivalTime) - Date.now()) / 1000 : 0
@@ -62,6 +65,7 @@ export function TrackOrderModal({ order, onClose }) {
                 </div>
 
                 {/* Info Box Area */}
+                <PullToRefreshWrapper onRefresh={fetchOrders}>
                 <div style={{ padding: "24px 20px", background: P.card, zIndex: 10 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
                         <div style={{ width: 48, height: 48, borderRadius: 24, background: P.primary + "22", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24 }}>
@@ -109,6 +113,7 @@ export function TrackOrderModal({ order, onClose }) {
                         Close Tracking
                     </button>
                 </div>
+                </PullToRefreshWrapper>
             </div>
         </div>
     );

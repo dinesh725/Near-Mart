@@ -5,6 +5,8 @@ import { useStore } from "../../context/GlobalStore";
 import { fmtFull } from "../../utils/helpers";
 import { CloudImage } from "../../components/CloudImage";
 import { ImagePicker } from "../../components/ImagePicker";
+import { PullToRefreshWrapper } from "../../components/ui/PullToRefreshWrapper";
+import { InfiniteScrollTrigger } from "../../components/ui/InfiniteScrollTrigger";
 
 function Toast({ msg, icon, onDone }) {
     React.useEffect(() => { const t = setTimeout(onDone, 3000); return () => clearTimeout(t); }, [onDone]);
@@ -23,7 +25,7 @@ const STATUS_LABEL = { PENDING: "Pending", CONFIRMED: "Confirmed", PREPARING: "P
 
 export function SellerDashboard({ activeTab }) {
     const { user } = useAuth();
-    const { orders, products, acceptOrder, prepareOrder, markReadyForPickup, updatePrice, addProduct, removeProduct, updateStock, updateProductImage, showToast } = useStore();
+    const { orders, products, acceptOrder, prepareOrder, markReadyForPickup, updatePrice, addProduct, removeProduct, updateStock, updateProductImage, showToast, fetchOrders } = useStore();
     const [toast, setToast] = useState(null);
     const [modal, setModal] = useState(null);
     const [form, setForm] = useState({});
@@ -324,6 +326,7 @@ export function SellerDashboard({ activeTab }) {
         const displayOrds = view === "active" ? filteredOrds : allOrds;
 
         return (
+            <PullToRefreshWrapper onRefresh={fetchOrders}>
             <div className="col gap14">
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <h2 style={{ fontWeight: 800, fontSize: 20 }}>📋 Orders</h2>
@@ -380,6 +383,7 @@ export function SellerDashboard({ activeTab }) {
                     })
                 )}
             </div>
+            </PullToRefreshWrapper>
         );
     };
 
@@ -550,14 +554,25 @@ export function SellerDashboard({ activeTab }) {
         );
     };
 
-    const InventoryTab = () => (
+    const [inventoryPage, setInventoryPage] = useState(1);
+    const INVENTORY_LIMIT = 20;
+
+    const InventoryTab = () => {
+        const displayProducts = myProducts.slice(0, inventoryPage * INVENTORY_LIMIT);
+        const hasMore = displayProducts.length < myProducts.length;
+
+        const loadMore = useCallback(() => {
+            setInventoryPage(p => p + 1);
+        }, []);
+
+        return (
         <div className="col gap14">
             <div className="row-between">
                 <h2 style={{ fontWeight: 800, fontSize: 20 }}>📦 Inventory ({myProducts.length} SKUs)</h2>
                 <button className="p-btn p-btn-ghost p-btn-sm" onClick={() => { setModal({ mode: "add" }); setForm({ emoji: "🛒", name: "", sellingPrice: "", mrp: "", costPrice: "", stock: "", category: "Dairy", description: "", weight: "", tags: "" }); }}>+ Add</button>
             </div>
             <div className="col gap10">
-                {myProducts.map(p => (
+                {displayProducts.map(p => (
                     <div key={p.id} className="p-card" style={{ padding: "14px 16px" }}>
                         <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
                             {/* Product image or emoji */}
@@ -588,9 +603,11 @@ export function SellerDashboard({ activeTab }) {
                         </div>
                     </div>
                 ))}
+                {hasMore && <InfiniteScrollTrigger onLoadMore={loadMore} loadingMore={false} hasMore={true} />}
             </div>
         </div>
-    );
+        );
+    };
 
     const FinanceTab = () => {
         const totalCost = storeOrders.filter(o => o.status === "DELIVERED").reduce((s, o) => s + o.items.reduce((si, i) => { const p = myProducts.find(x => x.id === i.productId); return si + (p?.costPrice || 0) * i.qty; }, 0), 0);

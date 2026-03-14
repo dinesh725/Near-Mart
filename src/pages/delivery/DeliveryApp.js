@@ -6,6 +6,7 @@ import socketManager from "../../utils/socketManager";
 import DeliveryMap from "../../components/Map/DeliveryMap";
 import useLiveLocation from "../../hooks/useLiveLocation";
 import OtpModal from "../../components/OtpModal";
+import { PullToRefreshWrapper } from "../../components/ui/PullToRefreshWrapper";
 
 function Toast({ msg, icon, onDone }) {
     React.useEffect(() => { const t = setTimeout(onDone, 3500); return () => clearTimeout(t); }, [onDone]);
@@ -609,6 +610,7 @@ export function DeliveryApp({ activeTab }) {
     );
 
     const renderTasks = (
+        <PullToRefreshWrapper onRefresh={() => fetchAvailableTasks(liveLocation?.lat, liveLocation?.lng)}>
         <div className="col gap14">
             <h2 style={{ fontWeight: 800, fontSize: 20 }}>📋 Available Tasks</h2>
 
@@ -643,6 +645,7 @@ export function DeliveryApp({ activeTab }) {
                 );
             })}
         </div>
+        </PullToRefreshWrapper>
     );
 
     const renderEarnings = (

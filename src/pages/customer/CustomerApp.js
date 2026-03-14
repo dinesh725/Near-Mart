@@ -9,7 +9,7 @@ import { WalletPage } from "./WalletPage";
 import { TrackOrderModal } from "../../components/Map/TrackOrderModal";
 import { MultiSellerSheet } from "../../components/MultiSellerSheet";
 import { OrdersPage } from "./OrdersPage";
-import { PullToRefresh } from "../../components/PullToRefresh";
+import { PullToRefreshWrapper } from "../../components/ui/PullToRefreshWrapper";
 import { OrderSuccessScreen } from "../../components/OrderSuccessScreen";
 import { OrderCommandCenter } from "../../components/OrderCommandCenter";
 import { FloatingOrderTracker } from "../../components/FloatingOrderTracker";
@@ -313,7 +313,7 @@ export function CustomerApp({ activeTab, setActiveTab }) {
 
     // ── HOME TAB ──────────────────────────────────────────────────────────────
     const HomeTab = () => (
-        <PullToRefresh onRefresh={() => fetchProductsPage(1)}>
+        <PullToRefreshWrapper onRefresh={() => fetchProductsPage(1)}>
             <div className="col gap16">
             {/* Hero / Welcome */}
             <div className="welcome-hero" style={{ background: `linear-gradient(135deg,${P.primary},#6366F1)`, borderRadius: 20, padding: "22px 22px", position: "relative", overflow: "hidden" }}>
@@ -407,7 +407,7 @@ export function CustomerApp({ activeTab, setActiveTab }) {
                 </>
             )}
         </div>
-        </PullToRefresh>
+        </PullToRefreshWrapper>
     );
 
     // ── CART TAB ──────────────────────────────────────────────────────────────
