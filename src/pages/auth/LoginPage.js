@@ -134,6 +134,12 @@ function WebGoogleAuthScript({ onSuccess, onError }) {
         };
         script.onerror = onError;
         document.body.appendChild(script);
+
+        return () => {
+            if (window.google?.accounts?.id?.cancel) {
+                window.google.accounts.id.cancel();
+            }
+        };
     }, [onSuccess, onError]);
 
     const renderButton = (id) => {

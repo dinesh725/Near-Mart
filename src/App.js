@@ -58,7 +58,10 @@ function AppInner() {
     // ── MOBILE SESSION & BACKGROUND RELIABILITY ──
     // Ensure verification and socket state restore seamlessly on resume
     const appStateListener = CapApp.addListener('appStateChange', async ({ isActive }) => {
-      if (isActive) {
+      // Prevent rapid fire loops if COOP headers or other issues cause focus bouncing
+      const now = Date.now();
+      if (isActive && (!window._lastResumeTime || now - window._lastResumeTime > 5000)) {
+        window._lastResumeTime = now;
         console.log("App resumed. Restoring session state...");
         if (isAuthenticated) {
           try { await refreshUser(); } catch { /* ignore */ }

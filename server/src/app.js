@@ -53,7 +53,7 @@ app.set("trust proxy", 1);
 // (WebView origin is https://localhost, API is at near-mart.onrender.com)
 app.use(helmet({
     crossOriginResourcePolicy: { policy: "cross-origin" },  // Allow API responses to be read cross-origin
-    crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },  // Allow Google OAuth popups
+    crossOriginOpenerPolicy: false,  // Disabled to prevent Google Identity Services iframe blocking
     contentSecurityPolicy: false,  // CSP not needed for an API server
 }));
 

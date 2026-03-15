@@ -95,7 +95,7 @@ const userSchema = new mongoose.Schema({
     kycDocuments: [{
         docType: { type: String, enum: ['AADHAAR', 'PAN', 'PASSPORT', 'GSTIN'] },
         documentIdentifier: { type: String }, // Pre-signed cloud storage key
-        status: { type: String, enum: ['VERIFIED', 'REJECTED'] }
+        status: { type: String, enum: ['PENDING', 'VERIFIED', 'REJECTED'] }
     }],
     payoutsEnabled: { type: Boolean, default: false }, // Safety kill-switch
     // ── Rider Rejection Tracking (Phase-8) ───────────────────────────
