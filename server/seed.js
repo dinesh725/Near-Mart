@@ -25,7 +25,7 @@ const DEMO_USERS = [
     { name: "Global Foods Ltd", email: "demo.vendor@nearmart.in", password: "demo123", role: "vendor", avatar: "GF", supplierId: "SUP-001", companyName: "Global Foods Ltd", emailVerified: true, phoneVerified: true },
     { name: "Vikram Singh", email: "demo.delivery@nearmart.in", password: "demo123", role: "delivery", avatar: "VS", vehicleType: "bike", vehicleNo: "MH-04-AB-1234", rating: 4.8, emailVerified: true, phoneVerified: true },
     { name: "Meera Joshi", email: "demo.support@nearmart.in", password: "demo123", role: "support", avatar: "MJ", department: "Customer Support", emailVerified: true, phoneVerified: true },
-    { name: "Admin NM", email: "demo.admin@nearmart.in", password: "demo123", role: "super_admin", avatar: "AN", accessLevel: "super", emailVerified: true, phoneVerified: true },
+    { name: "Super Admin", email: "dineshkhatua672@gmail.com", password: "Dinesh@123", role: "super_admin", avatar: "DK", accessLevel: "super", emailVerified: true, phoneVerified: true },
 ];
 
 const DEMO_PRODUCTS = [

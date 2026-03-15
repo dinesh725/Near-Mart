@@ -8,7 +8,7 @@ export const DEMO_ROLES = [
     { role: "vendor", name: "Vendor Demo", email: "demo.vendor@nearmart.in", avatar: "GF", desc: "Supply chain & bulk orders" },
     { role: "delivery", name: "Delivery Demo", email: "demo.delivery@nearmart.in", avatar: "VS", desc: "Accept & fulfill deliveries" },
     { role: "support", name: "Support Demo", email: "demo.support@nearmart.in", avatar: "MJ", desc: "Resolve tickets & disputes" },
-    { role: "admin", name: "Admin Demo", email: "demo.admin@nearmart.in", avatar: "AN", desc: "Platform intelligence & controls" },
+    { role: "super_admin", name: "Super Admin", email: "dineshkhatua672@gmail.com", avatar: "DK", desc: "Platform intelligence & controls" },
 ];
 
 // Keep USERS_DB export for backward compatibility (AdminDashboard, LoginPage)
