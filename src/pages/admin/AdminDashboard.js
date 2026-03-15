@@ -345,10 +345,25 @@ export function AdminDashboard({ activeTab }) {
                                 <div style={{ minWidth: 0 }}>
                                     <div style={{ fontWeight: 700, fontSize: 14 }}>{u.name}</div>
                                     <div style={{ fontSize: 12, color: P.textMuted }}>{u.email} · <span style={{ color: ROLE_BADGE_COLOR[u.role], fontWeight: 700 }}>{u.role}</span></div>
+                                    <div style={{ fontSize: 11, color: P.textDim, marginTop: 4 }}>
+                                        Entity: <span style={{ color: "white" }}>{u.companyName || u.storeName || u.vehicleNo || "Not provided"}</span> · 
+                                        Doc: <span style={{ color: "white" }}>{u.kycDocuments?.[0]?.docType || "Unknown"}</span>
+                                    </div>
                                 </div>
                             </div>
                             <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
                                 <span style={{ padding: "3px 10px", borderRadius: 6, fontSize: 10, fontWeight: 800, background: (KYC_COLORS[u.kycStatus] || P.textMuted) + "18", color: KYC_COLORS[u.kycStatus] || P.textMuted }}>{u.kycStatus || "PENDING"}</span>
+                                {u.kycDocuments?.[0]?.documentIdentifier && (
+                                    <button 
+                                        onClick={async () => {
+                                            const res = await api.get(`/kyc/read-url/${u.kycDocuments[0].documentIdentifier}`);
+                                            if (res.ok && res.readUrl) window.open(res.readUrl, "_blank");
+                                            else alert("Could not load document preview.");
+                                        }} 
+                                        style={{ padding: "5px 12px", borderRadius: 8, border: `1px solid ${P.primary}44`, background: "transparent", color: P.primary, cursor: "pointer", fontWeight: 700, fontSize: 11, fontFamily: "'Sora',sans-serif" }}>
+                                        👁️ View Doc
+                                    </button>
+                                )}
                                 {u.kycStatus === "SUBMITTED" && (
                                     <>
                                         <button onClick={() => handleKycAction(u._id, "VERIFIED")} disabled={actionLoading === u._id} style={{ padding: "5px 12px", borderRadius: 8, border: `1px solid ${P.success}44`, background: "transparent", color: P.success, cursor: "pointer", fontWeight: 700, fontSize: 11, fontFamily: "'Sora',sans-serif", opacity: actionLoading === u._id ? 0.5 : 1 }}>✅ Approve</button>

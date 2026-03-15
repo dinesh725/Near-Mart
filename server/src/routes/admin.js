@@ -176,7 +176,7 @@ router.get("/users",
             const skip = (parseInt(page) - 1) * parseInt(limit);
             const [users, total] = await Promise.all([
                 User.find(filter)
-                    .select("name email role status avatar createdAt invitedBy kycStatus kycDocuments")
+                    .select("name email role status avatar createdAt invitedBy kycStatus kycDocuments companyName storeName vehicleType vehicleNo")
                     .populate("invitedBy", "name email")
                     .sort({ createdAt: -1 })
                     .skip(skip)
