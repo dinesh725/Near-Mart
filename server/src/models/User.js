@@ -24,7 +24,7 @@ const userSchema = new mongoose.Schema({
         },
     },
     avatar: { type: String, default: "" },
-    walletBalance: { type: Number, default: 0 },
+    walletBalance: { type: Number, default: 0, min: 0 },
     reservedBalance: { type: Number, default: 0 }, // Held for pending hybrid payments
     refreshToken: { type: String, select: false },
     // ── Push Notifications ──────────────────────────────────────────────────
@@ -102,6 +102,15 @@ const userSchema = new mongoose.Schema({
     rejectionCount: { type: Number, default: 0 },
     lastRejectionAt: { type: Date },
     dispatchCooldownUntil: { type: Date },
+    // ── Login Device Tracking ──────────────────────────────────────────
+    lastLoginIp: { type: String },
+    lastLoginUserAgent: { type: String },
+    lastLoginAt: { type: Date },
+    loginHistory: [{
+        ip: { type: String },
+        userAgent: { type: String },
+        at: { type: Date },
+    }],
     // ── Per-Account Login Lockout ────────────────────────────────────
     loginAttempts: { type: Number, default: 0 },
     lockUntil: { type: Date },

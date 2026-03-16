@@ -103,28 +103,44 @@ router.post("/accept-invite",
 router.post("/login",
     authLimiter,
     validateJoi(authValidation.login),
-    verifyCaptcha,
+    // Conditional CAPTCHA: only enforce after 3+ failed login attempts
+    async (req, res, next) => {
+        try {
+            const existingUser = await User.findOne({ email: req.body.email });
+            if (existingUser && (existingUser.loginAttempts || 0) >= 3) {
+                return verifyCaptcha(req, res, next);
+            }
+            next();
+        } catch (err) { next(err); }
+    },
     async (req, res, next) => {
         try {
             const { email, password } = req.body;
             const user = await User.findOne({ email }).select("+password +mfaSecret");
 
-            // ── Suspended account block ──────────────────────────────────
+            // ── Suspended account block ────────────────────────────────────
             if (user && user.status === "suspended") {
                 throw new Unauthorized("Account suspended. Contact support.");
             }
 
-            // ── Per-account lockout check ────────────────────────────────
+            // ── Per-account lockout check ──────────────────────────────────
             if (user && user.lockUntil && user.lockUntil > Date.now()) {
                 const minsLeft = Math.ceil((user.lockUntil - Date.now()) / 60000);
                 throw new Unauthorized(`Account locked due to multiple failed login attempts. Try again in ${minsLeft} minutes.`);
             }
 
-            // ── Credential verification ──────────────────────────────────
+            // ── Credential verification ────────────────────────────────────
             if (!user || !(await user.comparePassword(password))) {
                 // Track failed attempt (only if user exists)
                 if (user) {
                     user.loginAttempts = (user.loginAttempts || 0) + 1;
+
+                    // Progressive delay: 500ms per prior failure, capped at 3s
+                    const delay = Math.min((user.loginAttempts - 1) * 500, 3000);
+                    if (delay > 0) {
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                    }
+
                     if (user.loginAttempts >= 5) {
                         user.lockUntil = new Date(Date.now() + 15 * 60 * 1000); // 15 min lock
                         logger.warn(`Account locked: ${email} after ${user.loginAttempts} failed attempts`);
@@ -136,15 +152,39 @@ router.post("/login",
                 throw new Unauthorized("Invalid email or password");
             }
 
-            // ── Successful auth — reset lockout counters ─────────────────
+            // ── Successful auth — reset lockout counters ───────────────────
             if (user.loginAttempts > 0 || user.lockUntil) {
                 user.loginAttempts = 0;
                 user.lockUntil = undefined;
             }
 
+            // ── Device fingerprinting & new device alert ────────────────
+            const currentIp = req.ip;
+            const currentUA = req.headers["user-agent"] || "unknown";
+
+            if (user.lastLoginIp && (user.lastLoginIp !== currentIp || user.lastLoginUserAgent !== currentUA)) {
+                logger.warn("New login device detected for user", {
+                    userId: user._id.toString(),
+                    ip: currentIp,
+                    userAgent: currentUA,
+                    previousIp: user.lastLoginIp,
+                });
+            }
+
+            user.lastLoginIp = currentIp;
+            user.lastLoginUserAgent = currentUA;
+            user.lastLoginAt = new Date();
+
+            // Append to loginHistory (capped at 10 entries)
+            if (!user.loginHistory) user.loginHistory = [];
+            user.loginHistory.push({ ip: currentIp, userAgent: currentUA, at: new Date() });
+            if (user.loginHistory.length > 10) {
+                user.loginHistory = user.loginHistory.slice(-10);
+            }
+
             // ── MFA check for privileged roles ───────────────────────────
             if (["admin", "super_admin"].includes(user.role) && user.mfaEnabled && user.mfaSecret) {
-                await user.save(); // persist lockout reset
+                await user.save(); // persist lockout reset + device info
                 return res.json({ ok: true, requireMfa: true, mfaUserId: user._id });
             }
 

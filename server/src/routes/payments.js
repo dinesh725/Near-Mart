@@ -15,6 +15,7 @@ const StockReservation = require("../models/StockReservation");
 const config = require("../config");
 const AuditLog = require("../models/AuditLog");
 const logger = require("../utils/logger");
+const orderVelocityCheck = require("../middleware/orderVelocityCheck");
 
 const RESERVATION_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
@@ -24,6 +25,7 @@ const router = express.Router();
 // Creates order + processes payment in one atomic flow
 router.post("/checkout",
     authenticate, authorize("customer"),
+    orderVelocityCheck,
     validateJoi(paymentValidation.checkout),
     async (req, res, next) => {
         try {

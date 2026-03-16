@@ -55,6 +55,7 @@ enforce("JWT_REFRESH_SECRET", "JWT refresh signing");
 enforce("MONGODB_URI", "Database connection");
 enforce("RAZORPAY_KEY_ID", "Payment processing");
 enforce("RAZORPAY_KEY_SECRET", "Payment processing");
+enforce("RAZORPAY_WEBHOOK_SECRET", "Webhook signature verification");
 warn("MAPBOX_ACCESS_TOKEN", "Mapbox maps & routing");
 enforce("CLOUDINARY_CLOUD_NAME", "Image uploads");
 enforce("CLOUDINARY_API_KEY", "Image uploads");
