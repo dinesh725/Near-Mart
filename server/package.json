@@ -9,6 +9,8 @@
         "seed": "node seed.js"
     },
     "dependencies": {
+        "@aws-sdk/client-s3": "^3.1009.0",
+        "@aws-sdk/s3-request-presigner": "^3.1009.0",
         "@sentry/node": "^10.43.0",
         "@sentry/profiling-node": "^10.43.0",
         "@socket.io/redis-adapter": "^8.3.0",

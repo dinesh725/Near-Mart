@@ -1,40 +1,48 @@
-const logger = require('../utils/logger');
-// Dummy mock for AWS/GCP to prevent breaking if sdk not installed
-// In production: const AWS = require('aws-sdk');
+const { PutObjectCommand, GetObjectCommand } = require("@aws-sdk/client-s3");
+const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
+const s3Client = require("./s3Client");
+const logger = require("../utils/logger");
 
-const generateUploadUrl = async (docType, sellerId) => {
+const uploadKycDocument = async (fileBuffer, mimeType, docType, userId) => {
     try {
-        // Pseudo-code for S3 pre-signed URL generation:
-        /*
-        const s3 = new AWS.S3({ region: process.env.AWS_REGION });
-        const key = `kyc/${sellerId}/${Date.now()}_${docType}.jpg`;
-        const url = s3.getSignedUrl('putObject', {
+        if (!s3Client) throw new Error("S3 Client not configured");
+        
+        const timestamp = Date.now();
+        const extension = mimeType.split('/')[1] || 'jpg';
+        const key = `kyc/${userId}/${timestamp}-${docType}.${extension}`;
+
+        const command = new PutObjectCommand({
             Bucket: process.env.AWS_KYC_BUCKET,
             Key: key,
-            Expires: 300 // 5 minutes
+            Body: fileBuffer,
+            ContentType: mimeType,
         });
-        */
-        
-        // Mocking for Phase-6C Blueprint
-        const mockKey = `kyc/${sellerId}/${Date.now()}_${docType}.jpg`;
-        const mockUrl = `https://mock-s3-bucket.s3.amazonaws.com/${mockKey}?signature=dummy123&Expires=300`;
-        
-        return { ok: true, url: mockUrl, key: mockKey };
+
+        await s3Client.send(command);
+        return { ok: true, key };
     } catch (e) {
-        logger.error(`[KYC Service] Failed generating upload URL: ${e.message}`);
+        logger.error(`[KYC Service] Failed uploadKycDocument: ${e.message}`);
         return { ok: false, error: 'Storage network error' };
     }
 };
 
-const generateReadUrl = async (documentIdentifier) => {
+const generateKycReadUrl = async (documentIdentifier) => {
     try {
-        // Mock read URL
-        const mockUrl = `https://mock-s3-bucket.s3.amazonaws.com/${documentIdentifier}?signature=read_dummy123&Expires=900`;
-        return { ok: true, url: mockUrl };
+        if (!s3Client) throw new Error("S3 Client not configured");
+
+        const command = new GetObjectCommand({
+            Bucket: process.env.AWS_KYC_BUCKET,
+            Key: documentIdentifier,
+        });
+
+        // Expires in 300 seconds (5 minutes)
+        const readUrl = await getSignedUrl(s3Client, command, { expiresIn: 300 });
+        
+        return { ok: true, readUrl };
     } catch (e) {
         logger.error(`[KYC Service] Failed generating read URL: ${e.message}`);
         return { ok: false, error: 'Storage network error' };
     }
 };
 
-module.exports = { generateUploadUrl, generateReadUrl };
+module.exports = { uploadKycDocument, generateKycReadUrl };

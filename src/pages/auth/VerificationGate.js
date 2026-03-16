@@ -232,15 +232,41 @@ function KycSubmissionStep() {
     const [docType, setDocType] = useState("GSTIN");
     const [loading, setLoading] = useState(false);
     const [msg, setMsg] = useState("");
+    const [documentIdentifier, setDocumentIdentifier] = useState(null);
     
-    // Simulate real file upload behavior
+    // Real file upload behavior securely connecting to backend POST /kyc/upload
     const handleDocumentUpload = async (e) => {
-        // Since many test envs don't have S3 configured, we auto-mock the identifier for seamless onboarding
-        setMsg("Document attached securely (Simulated).");
+        const file = e.target.files?.[0];
+        if (!file) return;
+        
+        setMsg("Uploading document securely...");
+        try {
+            const formData = new FormData();
+            formData.append("file", file);
+            formData.append("type", docType);
+
+            const token = localStorage.getItem("nm_access_token");
+            const res = await fetch(`${process.env.REACT_APP_API_URL || "http://localhost:5000/api"}/kyc/upload`, {
+                method: "POST",
+                headers: { "Authorization": `Bearer ${token}` },
+                body: formData
+            });
+            const data = await res.json();
+            
+            if (data.ok) {
+                setDocumentIdentifier(data.documentIdentifier);
+                setMsg("Document uploaded securely. Ready to submit.");
+            } else {
+                setMsg(data.error || "Failed to upload document.");
+            }
+        } catch (e) {
+            setMsg("Network error during upload.");
+        }
     };
 
     const handleSubmitKYC = async () => {
         if (!companyName.trim()) { setMsg("Company/Store name is required."); return; }
+        if (!documentIdentifier) { setMsg("Please upload an identity document first."); return; }
         
         setLoading(true); setMsg("");
         try {
@@ -251,7 +277,7 @@ function KycSubmissionStep() {
                 kycSubmittedAt: new Date().toISOString(),
                 kycDocuments: [{
                     docType: docType,
-                    documentIdentifier: "simulated_upload_" + Date.now(),
+                    documentIdentifier: documentIdentifier,
                     status: "PENDING"
                 }]
             });

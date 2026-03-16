@@ -1,22 +1,26 @@
 const express = require('express');
 const router = express.Router();
 const { authenticate: authMiddleware, authorize: roleGuard } = require('../middleware/auth');
-const { generateUploadUrl, generateReadUrl } = require('../services/kycService');
+const { uploadKycDocument, generateKycReadUrl } = require('../services/kycService');
+const multer = require('multer');
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
-router.get('/upload-url', authMiddleware, async (req, res) => {
+router.post('/upload', authMiddleware, upload.single('file'), async (req, res) => {
     try {
-        const { type } = req.query; // e.g. 'AADHAAR'
+        const { type } = req.body; // e.g. 'AADHAAR'
         if (!['AADHAAR', 'PAN', 'PASSPORT', 'GSTIN'].includes(type)) {
             return res.status(400).json({ error: 'Invalid document type requested' });
         }
+        if (!req.file) {
+            return res.status(400).json({ error: 'No document file provided' });
+        }
         
-        const result = await generateUploadUrl(type, req.user.id);
+        const result = await uploadKycDocument(req.file.buffer, req.file.mimetype, type, req.user.id);
         if (!result.ok) {
             return res.status(500).json({ error: result.error });
         }
         
-        // Return pre-signed url to client to upload directly to S3
-        res.json({ ok: true, uploadUrl: result.url, documentIdentifier: result.key });
+        res.json({ ok: true, documentIdentifier: result.key });
     } catch (e) {
         res.status(500).json({ error: e.message });
     }

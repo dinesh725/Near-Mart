@@ -307,6 +307,7 @@ export function AdminDashboard({ activeTab }) {
         const [loading, setLoading] = useState(true);
         const [actionLoading, setActionLoading] = useState(null);
         const [statusFilter, setStatusFilter] = useState("SUBMITTED");
+        const [previewImage, setPreviewImage] = useState(null);
 
         const fetchKycUsers = useCallback(async () => {
             setLoading(true);
@@ -357,7 +358,7 @@ export function AdminDashboard({ activeTab }) {
                                     <button 
                                         onClick={async () => {
                                             const res = await api.get(`/kyc/read-url/${u.kycDocuments[0].documentIdentifier}`);
-                                            if (res.ok && res.readUrl) window.open(res.readUrl, "_blank");
+                                            if (res.ok && res.readUrl) setPreviewImage(res.readUrl);
                                             else alert("Could not load document preview.");
                                         }} 
                                         style={{ padding: "5px 12px", borderRadius: 8, border: `1px solid ${P.primary}44`, background: "transparent", color: P.primary, cursor: "pointer", fontWeight: 700, fontSize: 11, fontFamily: "'Sora',sans-serif" }}>
@@ -373,6 +374,14 @@ export function AdminDashboard({ activeTab }) {
                             </div>
                         </div>
                     ))}</div>
+                )}
+                {previewImage && (
+                    <div className="modal-overlay" style={{ position: "fixed", top: 0, left: 0, width: "100%", height: "100%", background: "rgba(0,0,0,0.65)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 9999 }}>
+                        <div className="modal-content" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                            <button onClick={() => setPreviewImage(null)} style={{ alignSelf: "flex-end", padding: "10px 16px", background: P.card, color: P.text, border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 800 }}>✕ Close</button>
+                            <img src={previewImage} alt="KYC document" style={{ maxWidth: "90vw", maxHeight: "90vh", objectFit: "contain", borderRadius: 10 }} />
+                        </div>
+                    </div>
                 )}
             </div>
         );
