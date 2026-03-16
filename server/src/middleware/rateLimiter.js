@@ -28,4 +28,14 @@ const sensitiveLimiter = rateLimit({
     message: { ok: false, error: "Too many attempts. Please wait a minute before retrying." },
 });
 
-module.exports = { generalLimiter, authLimiter, sensitiveLimiter };
+// ── Financial endpoint limiter: 5 req / 1 min ───────────────────────────────
+// Applied to checkout, wallet add-money — prevents payment/wallet abuse
+const financialLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 5,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { ok: false, error: "Too many financial requests. Please wait before retrying." },
+});
+
+module.exports = { generalLimiter, authLimiter, sensitiveLimiter, financialLimiter };

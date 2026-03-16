@@ -1,9 +1,9 @@
 const express = require("express");
-const { body, query } = require("express-validator");
 const User = require("../models/User");
 const WalletTransaction = require("../models/WalletTransaction");
 const { authenticate, authorize } = require("../middleware/auth");
-const { validate } = require("../middleware/validate");
+const validateJoi = require("../middleware/validateJoi");
+const walletValidation = require("../validations/wallet.validation");
 const { BadRequest, NotFound } = require("../utils/errors");
 const { createRazorpayOrder, verifySignature } = require("../services/paymentService");
 const { notify } = require("../services/notificationService");
@@ -20,8 +20,7 @@ router.get("/balance", authenticate, (req, res) => {
 // ── Add Money — Create Razorpay Order ─────────────────────────────────────────
 router.post("/add-money",
     authenticate, authorize("customer"),
-    body("amount").isFloat({ min: 10, max: 50000 }).withMessage("Amount must be ₹10–₹50,000"),
-    validate,
+    validateJoi(walletValidation.addMoney),
     async (req, res, next) => {
         try {
             const amount = parseFloat(req.body.amount);
@@ -58,10 +57,7 @@ router.post("/add-money",
 // ── Verify Topup — Credit Wallet After Payment ────────────────────────────────
 router.post("/verify-topup",
     authenticate,
-    body("razorpay_order_id").notEmpty(),
-    body("razorpay_payment_id").notEmpty(),
-    body("razorpay_signature").notEmpty(),
-    validate,
+    validateJoi(walletValidation.verifyTopup),
     async (req, res, next) => {
         try {
             const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
@@ -111,9 +107,7 @@ router.post("/verify-topup",
 // ── Wallet Transaction History ────────────────────────────────────────────────
 router.get("/transactions",
     authenticate,
-    query("page").optional().isInt({ min: 1 }),
-    query("limit").optional().isInt({ min: 1, max: 50 }),
-    validate,
+    validateJoi(walletValidation.transactions),
     async (req, res, next) => {
         try {
             const page = parseInt(req.query.page) || 1;

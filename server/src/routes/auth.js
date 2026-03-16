@@ -6,6 +6,8 @@ const validateJoi = require("../middleware/validateJoi");
 const authValidation = require("../validations/auth.validation");
 const userValidation = require("../validations/user.validation");
 const { authLimiter } = require("../middleware/rateLimiter");
+const verifyCaptcha = require("../middleware/verifyCaptcha");
+const { recordSuspiciousEvent } = require("../middleware/abuseDetector");
 const { BadRequest, Unauthorized, Conflict } = require("../utils/errors");
 const logger = require("../utils/logger");
 const EmailService = require("../services/emailService");
@@ -101,6 +103,7 @@ router.post("/accept-invite",
 router.post("/login",
     authLimiter,
     validateJoi(authValidation.login),
+    verifyCaptcha,
     async (req, res, next) => {
         try {
             const { email, password } = req.body;
@@ -128,6 +131,8 @@ router.post("/login",
                     }
                     await user.save();
                 }
+                // Record for IP abuse tracking
+                recordSuspiciousEvent(req.ip, "login_failure");
                 throw new Unauthorized("Invalid email or password");
             }
 
