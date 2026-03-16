@@ -9,6 +9,7 @@ const { authLimiter } = require("../middleware/rateLimiter");
 const verifyCaptcha = require("../middleware/verifyCaptcha");
 const { recordSuspiciousEvent } = require("../middleware/abuseDetector");
 const { BadRequest, Unauthorized, Conflict } = require("../utils/errors");
+const { authenticate } = require("../middleware/auth");
 const logger = require("../utils/logger");
 const EmailService = require("../services/emailService");
 const SmsService = require("../services/smsService");
@@ -288,9 +289,10 @@ router.post("/mfa/verify",
  */
 router.post("/mfa/login",
     authLimiter,
-    body("mfaUserId").trim().notEmpty().withMessage("User ID required"),
-    body("token").trim().notEmpty().withMessage("TOTP token required"),
-    validate,
+    validateJoi(require("joi").object({
+        mfaUserId: require("joi").string().trim().required().messages({ "any.required": "User ID required" }),
+        token: require("joi").string().trim().required().messages({ "any.required": "TOTP token required" }),
+    }).unknown(false)),
     async (req, res, next) => {
         try {
             const { mfaUserId, token } = req.body;
