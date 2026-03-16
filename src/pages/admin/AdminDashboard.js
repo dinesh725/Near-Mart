@@ -357,7 +357,7 @@ export function AdminDashboard({ activeTab }) {
                                 {u.kycDocuments?.[0]?.documentIdentifier && (
                                     <button 
                                         onClick={async () => {
-                                            const res = await api.get(`/kyc/read-url/${u.kycDocuments[0].documentIdentifier}`);
+                                            const res = await api.get(`/kyc/read-url/${encodeURIComponent(u.kycDocuments[0].documentIdentifier)}`);
                                             if (res.ok && res.readUrl) setPreviewImage(res.readUrl);
                                             else alert("Could not load document preview.");
                                         }} 
