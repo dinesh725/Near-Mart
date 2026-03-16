@@ -21,12 +21,15 @@
         "compression": "^1.8.1",
         "cors": "^2.8.5",
         "dotenv": "^16.4.7",
-        "express-rate-limit": "^7.5.0",
+        "express-mongo-sanitize": "^2.2.0",
+        "express-rate-limit": "^7.5.1",
         "express-validator": "^7.2.1",
         "firebase-admin": "^13.7.0",
         "google-auth-library": "^10.6.1",
-        "helmet": "^8.0.0",
+        "helmet": "^8.1.0",
+        "hpp": "^0.2.3",
         "ioredis": "^5.10.0",
+        "joi": "^18.0.2",
         "mongoose": "^8.10.1",
         "morgan": "^1.10.0",
         "multer": "^2.1.0",
@@ -38,7 +41,8 @@
         "resend": "^6.9.3",
         "socket.io": "^4.8.3",
         "speakeasy": "^2.0.0",
-        "twilio": "^5.12.2"
+        "twilio": "^5.12.2",
+        "xss-clean": "^0.1.4"
     },
     "devDependencies": {
         "express": "^5.2.1",

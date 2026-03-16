@@ -4,7 +4,11 @@ const cors = require("cors");
 const morgan = require("morgan");
 const compression = require("compression");
 const config = require("./config");
-const { generalLimiter } = require("./middleware/rateLimiter");
+const { generalLimiter, sensitiveLimiter } = require("./middleware/rateLimiter");
+const requestId = require("./middleware/requestId");
+const mongoSanitize = require("express-mongo-sanitize");
+const xss = require("xss-clean");
+const hpp = require("hpp");
 const { AppError } = require("./utils/errors");
 const logger = require("./utils/logger");
 const Sentry = require("@sentry/node");
@@ -52,9 +56,14 @@ app.set("trust proxy", 1);
 // helmet() must allow cross-origin API consumption for Capacitor WebView
 // (WebView origin is https://localhost, API is at near-mart.onrender.com)
 app.use(helmet({
-    crossOriginResourcePolicy: { policy: "cross-origin" },  // Allow API responses to be read cross-origin
-    crossOriginOpenerPolicy: false,  // Disabled to prevent Google Identity Services iframe blocking
-    contentSecurityPolicy: false,  // CSP not needed for an API server
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+    crossOriginOpenerPolicy: false,
+    contentSecurityPolicy: false,
+    hsts: { maxAge: 31536000, includeSubDomains: true, preload: true },
+    noSniff: true,
+    dnsPrefetchControl: { allow: false },
+    frameguard: { action: "deny" },
+    referrerPolicy: { policy: "strict-origin-when-cross-origin" },
 }));
 
 // Multi-origin CORS: CORS_ORIGIN can be comma-separated
@@ -83,16 +92,38 @@ app.use(compression());
 app.use("/api/webhooks", webhookRoutes);
 
 // ── Parsing ───────────────────────────────────────────────────────────────────
-app.use(express.json({ limit: "10mb" }));
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ 
+    limit: "1mb",
+    verify: (req, res, buf) => {
+        req.rawBody = buf; // Retain raw body for HMAC signature verification
+    }
+}));
+app.use(express.urlencoded({ extended: true, limit: "1mb" }));
+
+// Data sanitization against NoSQL query injection
+app.use(mongoSanitize());
+
+// Data sanitization against XSS
+app.use(xss());
+
+// Prevent parameter pollution
+app.use(hpp());
 
 // ── Logging ───────────────────────────────────────────────────────────────────
 if (config.nodeEnv !== "test") {
     app.use(morgan("short"));
 }
 
+// ── Request Correlation ID ──────────────────────────────────────────────────────
+app.use(requestId);
+
 // ── Rate Limiting ─────────────────────────────────────────────────────────────
 app.use("/api/", generalLimiter);
+
+// ── Sensitive Endpoint Rate Limiting (brute-force protection) ─────────────
+app.use("/api/auth/login", sensitiveLimiter);
+app.use("/api/auth/register", sensitiveLimiter);
+app.use("/api/kyc/upload", sensitiveLimiter);
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 app.get("/", (req, res) => {
@@ -156,7 +187,7 @@ app.use((err, req, res, next) => {
         return res.status(400).json({ ok: false, code: "INVALID_ID", error: "Invalid ID format" });
     }
 
-    logger.error("Unhandled error", { message: err.message, stack: err.stack });
+    logger.error("Unhandled error", { message: err.message, stack: err.stack, requestId: req.id });
     res.status(500).json({ ok: false, code: "SERVER_ERROR", error: "Internal server error" });
 });
 

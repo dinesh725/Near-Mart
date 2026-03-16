@@ -1,13 +1,13 @@
 const express = require("express");
 const crypto = require("crypto");
-const { body } = require("express-validator");
 const Order = require("../models/Order");
 const Product = require("../models/Product");
 const User = require("../models/User");
 const Transaction = require("../models/Transaction");
 const WalletTransaction = require("../models/WalletTransaction");
 const { authenticate, authorize } = require("../middleware/auth");
-const { validate } = require("../middleware/validate");
+const validateJoi = require("../middleware/validateJoi");
+const paymentValidation = require("../validations/payment.validation");
 const { BadRequest, NotFound, Conflict } = require("../utils/errors");
 const { createRazorpayOrder, verifySignature, verifyWebhookSignature, fetchPaymentStatus, fetchOrderStatus, refundPayment, distributeRevenue } = require("../services/paymentService");
 const { notify } = require("../services/notificationService");
@@ -24,12 +24,7 @@ const router = express.Router();
 // Creates order + processes payment in one atomic flow
 router.post("/checkout",
     authenticate, authorize("customer"),
-    body("items").isArray({ min: 1 }).withMessage("At least one item required"),
-    body("items.*.productId").notEmpty(),
-    body("items.*.qty").isInt({ min: 1 }),
-    body("address").trim().notEmpty().withMessage("Address is required"),
-    body("paymentMethod").isIn(["wallet", "razorpay", "hybrid"]).withMessage("Invalid payment method"),
-    validate,
+    validateJoi(paymentValidation.checkout),
     async (req, res, next) => {
         try {
             const { items, address, paymentMethod } = req.body;
@@ -330,10 +325,7 @@ router.post("/checkout",
 // ── Verify Gateway Payment (client-side callback) ─────────────────────────────
 router.post("/verify",
     authenticate,
-    body("razorpay_order_id").notEmpty(),
-    body("razorpay_payment_id").notEmpty(),
-    body("razorpay_signature").notEmpty(),
-    validate,
+    validateJoi(paymentValidation.verify),
     async (req, res, next) => {
         try {
             const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
@@ -430,10 +422,10 @@ router.post("/verify",
 );
 
 // ── Razorpay Webhook (source of truth) ────────────────────────────────────────
-// IMPORTANT: Body must be raw for HMAC verification. JSON parsing happens here.
-router.post("/webhook", express.raw({ type: "application/json" }), async (req, res) => {
+// IMPORTANT: JSON parsing happens globally, we use req.rawBody preserved by app.js for HMAC
+router.post("/webhook", async (req, res) => {
     try {
-        const rawBody = req.body.toString();
+        const rawBody = req.rawBody ? req.rawBody.toString() : "";
 
         // 1. Verify webhook signature — HARD REJECT unsigned/tampered requests
         const receivedSignature = req.headers["x-razorpay-signature"];
@@ -452,7 +444,8 @@ router.post("/webhook", express.raw({ type: "application/json" }), async (req, r
         }
         logger.info("Webhook signature verified ✓");
 
-        const event = JSON.parse(rawBody);
+        // Parse from previously parsed body
+        const event = req.body;
         logger.info("Razorpay webhook event", { event: event.event, payloadId: event.payload?.payment?.entity?.id });
 
         // Phase-7: Replay attack prevention — deduplicate by event ID

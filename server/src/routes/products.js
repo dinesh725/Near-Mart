@@ -1,8 +1,8 @@
 const express = require("express");
-const { body, query } = require("express-validator");
 const Product = require("../models/Product");
 const { authenticate, authorize } = require("../middleware/auth");
-const { validate } = require("../middleware/validate");
+const validateJoi = require("../middleware/validateJoi");
+const productValidation = require("../validations/product.validation");
 const { NotFound } = require("../utils/errors");
 
 const SearchEngine = require("../services/searchEngine");
@@ -165,11 +165,7 @@ router.get("/search", async (req, res, next) => {
 
 // ── List Products (public, paginated) ─────────────────────────────────────────
 router.get("/",
-    query("page").optional().isInt({ min: 1 }),
-    query("limit").optional().isInt({ min: 1, max: 100 }),
-    query("category").optional().trim(),
-    query("search").optional().trim(),
-    validate,
+    validateJoi(productValidation.listProducts),
     async (req, res, next) => {
         try {
             const page = parseInt(req.query.page) || 1;
@@ -226,11 +222,7 @@ router.get("/:id", async (req, res, next) => {
 // ── Create Product (seller/admin) ─────────────────────────────────────────────
 router.post("/",
     authenticate, authorize("seller", "admin", "super_admin"),
-    body("name").trim().notEmpty().withMessage("Name is required"),
-    body("category").trim().notEmpty().withMessage("Category is required"),
-    body("sellingPrice").isFloat({ min: 0 }).withMessage("Price must be ≥ 0"),
-    body("stock").optional().isInt({ min: 0 }),
-    validate,
+    validateJoi(productValidation.createProduct),
     async (req, res, next) => {
         try {
             const product = await Product.create({
@@ -269,8 +261,7 @@ router.patch("/:id",
 // ── Update Stock ──────────────────────────────────────────────────────────────
 router.patch("/:id/stock",
     authenticate, authorize("seller", "admin", "super_admin"),
-    body("delta").isInt().withMessage("Delta must be an integer"),
-    validate,
+    validateJoi(productValidation.updateStock),
     async (req, res, next) => {
         try {
             const product = await Product.findById(req.params.id);
@@ -337,9 +328,7 @@ router.get("/:id/reviews", async (req, res, next) => {
 // ── Submit / Update Review (authenticated customer) ───────────────────────────
 router.post("/:id/rate",
     authenticate, authorize("customer"),
-    body("rating").isInt({ min: 1, max: 5 }).withMessage("Rating must be 1–5"),
-    body("comment").optional().isString().trim().isLength({ max: 500 }),
-    validate,
+    validateJoi(productValidation.rateProduct),
     async (req, res, next) => {
         try {
             const { rating, comment = "" } = req.body;
@@ -390,9 +379,7 @@ router.post("/:id/rate",
 // ── Update Product Images (seller/admin) ──────────────────────────────────────
 router.patch("/:id/images",
     authenticate, authorize("seller", "admin", "super_admin"),
-    body("images").isArray({ max: 5 }).withMessage("Up to 5 image URLs allowed"),
-    body("images.*").isURL().withMessage("Each image must be a valid URL"),
-    validate,
+    validateJoi(productValidation.updateImages),
     async (req, res, next) => {
         try {
             const product = await Product.findById(req.params.id);

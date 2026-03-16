@@ -3,7 +3,20 @@ const router = express.Router();
 const { authenticate: authMiddleware, authorize: roleGuard } = require('../middleware/auth');
 const { uploadKycDocument, generateKycReadUrl } = require('../services/kycService');
 const multer = require('multer');
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
+const fileFilter = (req, file, cb) => {
+    const allowed = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
+    if (allowed.includes(file.mimetype)) {
+        cb(null, true);
+    } else {
+        cb(new Error(`Invalid file type: ${file.mimetype}. Only JPEG, PNG, WEBP, and PDF are allowed.`));
+    }
+};
+
+const upload = multer({ 
+    storage: multer.memoryStorage(), 
+    limits: { fileSize: 5 * 1024 * 1024 },
+    fileFilter
+});
 
 router.post('/upload', authMiddleware, upload.single('file'), async (req, res) => {
     try {
@@ -32,7 +45,7 @@ const User = require('../models/User');
 router.get('/read-url/:id', authMiddleware, roleGuard('admin', 'super_admin'), async (req, res) => {
     try {
         const documentIdentifier = req.params.id; // Usually a storage key/path
-        const result = await generateReadUrl(documentIdentifier);
+        const result = await generateKycReadUrl(documentIdentifier);
         
         if (!result.ok) return res.status(500).json({ error: result.error });
         res.json({ ok: true, readUrl: result.url });

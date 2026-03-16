@@ -39,15 +39,26 @@ const config = {
 };
 
 // ── Startup Warnings ─────────────────────────────────────────────────────────
+const enforce = (key, label) => {
+    if (!process.env[key]) {
+        console.error(`🚨 FATAL: Missing env: ${key} — ${label} is required for secure operation.`);
+        process.exit(1);
+    }
+};
+
 const warn = (key, label) => {
     if (!process.env[key]) console.warn(`⚠️  Missing env: ${key} — ${label} will not work`);
 };
-warn("RAZORPAY_KEY_ID", "Payment processing");
-warn("RAZORPAY_KEY_SECRET", "Payment processing");
+
+enforce("JWT_SECRET", "JWT signing");
+enforce("JWT_REFRESH_SECRET", "JWT refresh signing");
+enforce("MONGODB_URI", "Database connection");
+enforce("RAZORPAY_KEY_ID", "Payment processing");
+enforce("RAZORPAY_KEY_SECRET", "Payment processing");
 warn("MAPBOX_ACCESS_TOKEN", "Mapbox maps & routing");
-warn("CLOUDINARY_CLOUD_NAME", "Image uploads");
-warn("CLOUDINARY_API_KEY", "Image uploads");
-warn("CLOUDINARY_API_SECRET", "Image uploads");
+enforce("CLOUDINARY_CLOUD_NAME", "Image uploads");
+enforce("CLOUDINARY_API_KEY", "Image uploads");
+enforce("CLOUDINARY_API_SECRET", "Image uploads");
 warn("REDIS_URL", "Redis caching & queues");
 warn("SENTRY_DSN", "Error monitoring & profiling");
 warn("GOOGLE_MAPS_API_KEY", "Google Maps routing & ETA");

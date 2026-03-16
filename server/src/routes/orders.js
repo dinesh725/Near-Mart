@@ -1,10 +1,10 @@
 const express = require("express");
-const { body } = require("express-validator");
 const Order = require("../models/Order");
 const Product = require("../models/Product");
 const User = require("../models/User");
-const { authenticate, authorize, requireVerification } = require("../middleware/auth");
-const { validate } = require("../middleware/validate");
+const { authenticate, authorize } = require("../middleware/auth");
+const validateJoi = require("../middleware/validateJoi");
+const orderValidation = require("../validations/order.validation");
 const { BadRequest, NotFound, Forbidden } = require("../utils/errors");
 const redisClient = require("../config/redis");
 const logger = require("../utils/logger");
@@ -707,8 +707,7 @@ router.patch("/:id/deliver",
 // ── Cancel Order ──────────────────────────────────────────────────────────────
 router.patch("/:id/cancel",
     authenticate,
-    body("reason").trim().notEmpty().withMessage("Cancellation reason required"),
-    validate,
+    validateJoi(orderValidation.cancelOrder),
     async (req, res, next) => {
         try {
             const order = await Order.findById(req.params.id);

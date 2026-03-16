@@ -1,10 +1,10 @@
 const express = require("express");
-const { body } = require("express-validator");
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 const config = require("../config");
-const { authenticate, generateTokens } = require("../middleware/auth");
-const { validate } = require("../middleware/validate");
+const validateJoi = require("../middleware/validateJoi");
+const authValidation = require("../validations/auth.validation");
+const userValidation = require("../validations/user.validation");
 const { authLimiter } = require("../middleware/rateLimiter");
 const { BadRequest, Unauthorized, Conflict } = require("../utils/errors");
 const logger = require("../utils/logger");
@@ -23,11 +23,7 @@ const PUBLIC_ROLES = ["customer", "seller", "vendor", "delivery"];
 // ── Register ──────────────────────────────────────────────────────────────────
 router.post("/register",
     authLimiter,
-    body("name").trim().notEmpty().withMessage("Name is required"),
-    body("email").isEmail().withMessage("Valid email required").normalizeEmail(),
-    body("password").isLength({ min: 6 }).withMessage("Min 6 characters"),
-    body("role").optional().isIn(PUBLIC_ROLES).withMessage("Invalid role"),
-    validate,
+    validateJoi(authValidation.register),
     async (req, res, next) => {
         try {
             const { name, email, password } = req.body;
@@ -58,10 +54,7 @@ const Invite = require("../models/Invite");
 
 router.post("/accept-invite",
     authLimiter,
-    body("token").trim().notEmpty().withMessage("Invite token required"),
-    body("name").trim().notEmpty().withMessage("Name is required"),
-    body("password").isLength({ min: 6 }).withMessage("Min 6 characters"),
-    validate,
+    validateJoi(authValidation.acceptInvite),
     async (req, res, next) => {
         try {
             const { token, name, password } = req.body;
@@ -107,9 +100,7 @@ router.post("/accept-invite",
 // ── Login ─────────────────────────────────────────────────────────────────────
 router.post("/login",
     authLimiter,
-    body("email").isEmail().withMessage("Valid email required").normalizeEmail(),
-    body("password").notEmpty().withMessage("Password required"),
-    validate,
+    validateJoi(authValidation.login),
     async (req, res, next) => {
         try {
             const { email, password } = req.body;
@@ -218,8 +209,7 @@ router.post("/mfa/setup",
  */
 router.post("/mfa/verify",
     authenticate,
-    body("token").trim().notEmpty().withMessage("TOTP token required"),
-    validate,
+    validateJoi(authValidation.mfaVerify),
     async (req, res, next) => {
         try {
             const user = await User.findById(req.user._id).select("+mfaSecret");
@@ -356,9 +346,7 @@ router.get("/me", authenticate, (req, res) => {
 
 // ── Update User Location ──────────────────────────────────────────────────────
 router.patch("/location", authenticate,
-    body("lat").isNumeric().withMessage("lat required"),
-    body("lng").isNumeric().withMessage("lng required"),
-    validate,
+    validateJoi(authValidation.location),
     async (req, res, next) => {
         try {
             const { lat, lng, address } = req.body;
@@ -376,7 +364,7 @@ router.patch("/location", authenticate,
 
 
 // ── Update Profile ────────────────────────────────────────────────────────────
-router.patch("/profile", authenticate,
+router.patch("/profile", authenticate, validateJoi(userValidation.updateProfile),
     async (req, res, next) => {
         try {
             const allowed = [
@@ -410,9 +398,7 @@ router.patch("/profile", authenticate,
 
 router.post("/google",
     authLimiter,
-    body("token").notEmpty().withMessage("Google ID token required"),
-    body("role").optional().isIn(PUBLIC_ROLES).withMessage("Invalid role"),
-    validate,
+    validateJoi(authValidation.google),
     async (req, res, next) => {
         try {
             const { token } = req.body;
@@ -560,9 +546,7 @@ router.post("/google/mobile-verify", async (req, res, next) => {
 
 router.post("/link-phone",
     authenticate,
-    body("phone").trim().notEmpty().withMessage("Phone required"),
-    body("otp").trim().isLength({ min: 6, max: 6 }).withMessage("6-digit OTP required"),
-    validate,
+    validateJoi(authValidation.linkPhone),
     async (req, res, next) => {
         try {
             const { phone, otp } = req.body;
@@ -599,9 +583,7 @@ const otpCooldowns = new Map();
 
 router.post("/send-otp",
     authLimiter,
-    body("phone").trim().notEmpty().withMessage("Phone number required")
-        .matches(/^\+?[0-9]{10,15}$/).withMessage("Invalid phone number"),
-    validate,
+    validateJoi(authValidation.sendOtp),
     async (req, res, next) => {
         try {
             const { phone } = req.body;
@@ -716,8 +698,7 @@ router.post("/verify-otp",
 // ══════════════════════════════════════════════════════════════════════════════
 
 router.patch("/fcm-token", authenticate,
-    body("fcmToken").trim().notEmpty().withMessage("FCM token required"),
-    validate,
+    validateJoi(authValidation.fcmToken),
     async (req, res, next) => {
         try {
             const token = req.body.fcmToken;
@@ -803,8 +784,7 @@ router.get("/verify-email/:token", async (req, res, next) => {
 
 router.post("/forgot-password",
     authLimiter,
-    body("identifier").trim().notEmpty().withMessage("Email or Phone required"),
-    validate,
+    validateJoi(authValidation.forgotPassword),
     async (req, res, next) => {
         try {
             const { identifier } = req.body;
@@ -859,9 +839,7 @@ router.post("/forgot-password",
 // ══════════════════════════════════════════════════════════════════════════════
 
 router.post("/change-password", authenticate,
-    body("oldPassword").notEmpty().withMessage("Current password required"),
-    body("newPassword").isLength({ min: 6 }).withMessage("New password must be at least 6 characters"),
-    validate,
+    validateJoi(authValidation.changePassword),
     async (req, res, next) => {
         try {
             const { oldPassword, newPassword } = req.body;
