@@ -14,11 +14,13 @@ router.post("/",
     authenticate, 
     authorize("customer"), 
     idempotencyGuard,
-    body("items").isArray({ min: 1 }).withMessage("At least one item required"),
-    body("items.*.productId").notEmpty(),
-    body("items.*.qty").isInt({ min: 1 }),
-    body("address").trim().notEmpty().withMessage("Address is required"),
-    validate,
+    require("../middleware/validateJoi")(require("joi").object({
+        items: require("joi").array().items(require("joi").object({
+            productId: require("joi").string().required(),
+            qty: require("joi").number().integer().min(1).required()
+        }).unknown(true)).min(1).required().messages({ "array.min": "At least one item required" }),
+        address: require("joi").string().trim().required().messages({ "any.required": "Address is required", "string.empty": "Address is required" })
+    }).unknown(true)),
     async (req, res, next) => {
         try {
             const { items, address } = req.body;

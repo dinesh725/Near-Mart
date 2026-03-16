@@ -845,8 +845,9 @@ router.patch("/:id/cancel",
 // ── Flag Order ────────────────────────────────────────────────────────────────
 router.patch("/:id/flag",
     authenticate,
-    body("issue").trim().notEmpty().withMessage("Issue description required"),
-    validate,
+    require("../middleware/validateJoi")(require("joi").object({
+        issue: require("joi").string().trim().required().messages({ "any.required": "Issue description required", "string.empty": "Issue description required" })
+    }).unknown(true)),
     async (req, res, next) => {
         try {
             const order = await Order.findById(req.params.id);
@@ -986,9 +987,10 @@ router.get("/batch/:batchId/optimized-route",
 // ── Rate Order ────────────────────────────────────────────────────────────────
 router.post("/:id/rate",
     authenticate, authorize("customer"),
-    body("rating").isInt({ min: 1, max: 5 }).withMessage("Rating must be 1-5"),
-    body("review").optional().isString().isLength({ max: 1000 }),
-    validate,
+    require("../middleware/validateJoi")(require("joi").object({
+        rating: require("joi").number().integer().min(1).max(5).required().messages({ "number.min": "Rating must be 1-5", "number.max": "Rating must be 1-5" }),
+        review: require("joi").string().max(1000).optional()
+    }).unknown(true)),
     async (req, res, next) => {
         try {
             const order = await Order.findById(req.params.id);
@@ -1140,8 +1142,9 @@ router.post("/:id/reorder",
 // ── Request Return (customer only, within 7 days of delivery) ─────────────────
 router.patch("/:id/request-return",
     authenticate, authorize("customer"),
-    body("reason").trim().notEmpty().withMessage("Return reason is required"),
-    validate,
+    require("../middleware/validateJoi")(require("joi").object({
+        reason: require("joi").string().trim().required().messages({ "any.required": "Return reason is required", "string.empty": "Return reason is required" })
+    }).unknown(true)),
     async (req, res, next) => {
         try {
             const order = await Order.findById(req.params.id);

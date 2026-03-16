@@ -1,9 +1,7 @@
 const express = require("express");
-const { body, query } = require("express-validator");
 const User = require("../models/User");
 const Product = require("../models/Product");
 const { authenticate, authorize } = require("../middleware/auth");
-const { validate } = require("../middleware/validate");
 const { geocodeAddress } = require("../services/geocoding");
 const { BadRequest, NotFound } = require("../utils/errors");
 
@@ -55,12 +53,13 @@ router.get("/nearby", async (req, res, next) => {
 // ── Seller Onboarding ─────────────────────────────────────────────────────────
 // PATCH /api/sellers/onboard
 router.patch("/onboard", authenticate, authorize("seller", "admin", "super_admin"),
-    body("storeName").optional().trim(),
-    body("storeDescription").optional().trim(),
-    body("storePhone").optional().trim(),
-    body("deliveryRadius").optional().isNumeric(),
-    body("isOpen").optional().isBoolean(),
-    validate,
+    require("../middleware/validateJoi")(require("joi").object({
+        storeName: require("joi").string().trim().optional(),
+        storeDescription: require("joi").string().trim().optional(),
+        storePhone: require("joi").string().trim().optional(),
+        deliveryRadius: require("joi").number().optional(),
+        isOpen: require("joi").boolean().optional()
+    }).unknown(true)),
     async (req, res, next) => {
         try {
             const { storeName, storeDescription, storePhone, deliveryRadius, isOpen, businessHours, address, lat, lng } = req.body;

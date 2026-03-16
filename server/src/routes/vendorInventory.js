@@ -29,14 +29,15 @@ router.get("/", authenticate, async (req, res, next) => {
 // ── Add New Supply (Vendors Only) ──────────────────────────────────────────
 router.post("/",
     authenticate, authorize("vendor"),
-    body("productName").notEmpty().trim(),
-    body("costPrice").isFloat({ min: 0 }),
-    body("stock").isInt({ min: 0 }),
-    body("unit").optional().isString(),
-    body("emoji").optional().isString(),
-    body("minOrderQty").optional().isInt({ min: 1 }),
-    body("leadDays").optional().isInt({ min: 0 }),
-    validate,
+    require("../middleware/validateJoi")(require("joi").object({
+        productName: require("joi").string().trim().required(),
+        costPrice: require("joi").number().min(0).required(),
+        stock: require("joi").number().integer().min(0).required(),
+        unit: require("joi").string().optional(),
+        emoji: require("joi").string().optional(),
+        minOrderQty: require("joi").number().integer().min(1).optional(),
+        leadDays: require("joi").number().integer().min(0).optional()
+    }).unknown(true)),
     async (req, res, next) => {
         try {
             const item = await VendorInventory.create({
@@ -54,10 +55,11 @@ router.post("/",
 // ── Update Supply (Vendors Only) ───────────────────────────────────────────
 router.patch("/:id",
     authenticate, authorize("vendor"),
-    body("costPrice").optional().isFloat({ min: 0 }),
-    body("stock").optional().isInt({ min: 0 }),
-    body("minOrderQty").optional().isInt({ min: 1 }),
-    validate,
+    require("../middleware/validateJoi")(require("joi").object({
+        costPrice: require("joi").number().min(0).optional(),
+        stock: require("joi").number().integer().min(0).optional(),
+        minOrderQty: require("joi").number().integer().min(1).optional()
+    }).unknown(true)),
     async (req, res, next) => {
         try {
             const item = await VendorInventory.findOne({ _id: req.params.id, vendorId: req.user._id });

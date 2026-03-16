@@ -692,11 +692,7 @@ router.post("/send-otp",
 
 router.post("/verify-otp",
     authLimiter,
-    body("phone").trim().notEmpty().withMessage("Phone required"),
-    body("otp").trim().isLength({ min: 6, max: 6 }).withMessage("6-digit OTP required"),
-    body("name").optional().trim(),
-    body("role").optional().isIn(User.ROLES).withMessage("Invalid role"),
-    validate,
+    validateJoi(authValidation.verifyOtp),
     async (req, res, next) => {
         try {
             const { phone, otp, name, role } = req.body;

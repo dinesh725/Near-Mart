@@ -1,7 +1,6 @@
 const express = require('express');
 const router = express.Router();
 const mongoose = require('mongoose');
-const { body, validationResult } = require('express-validator');
 
 const { authenticate: authMiddleware, authorize: roleGuard } = require('../middleware/auth');
 const idempotencyGuard = require('../middleware/idempotency');
@@ -29,12 +28,12 @@ router.get('/', authMiddleware, async (req, res) => {
 // ── LINK BANK ACCOUNT ──
 router.post('/bank-account', [
     authMiddleware,
-    body('accountNumber').notEmpty(),
-    body('ifscCode').notEmpty(),
-    body('accountHolderName').notEmpty()
+    require('../middleware/validateJoi')(require('joi').object({
+        accountNumber: require('joi').string().trim().required(),
+        ifscCode: require('joi').string().trim().required(),
+        accountHolderName: require('joi').string().trim().required()
+    }).unknown(true))
 ], async (req, res) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
     try {
         const seller = await User.findById(req.user.id);
@@ -62,12 +61,11 @@ router.post('/bank-account', [
 // ── REQUEST WITHDRAWAL (INTENT) ──
 router.post('/', [
     authMiddleware,
-    // roleGuard('SELLER'),
     idempotencyGuard,
-    body('amount').isNumeric().custom(val => val >= 500).withMessage('Minimum threshold is ₹500')
+    require('../middleware/validateJoi')(require('joi').object({
+        amount: require('joi').number().min(500).required().messages({'number.min': 'Minimum threshold is ₹500'})
+    }).unknown(true))
 ], async (req, res) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
     try {
         const amountToWithdraw = req.body.amount;

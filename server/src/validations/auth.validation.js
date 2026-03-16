@@ -78,6 +78,15 @@ const changePassword = {
     newPassword: Joi.string().min(6).required().messages({"string.min": "New password must be at least 6 characters"}),
   }).unknown(false),
 };
+const verifyOtp = {
+  body: Joi.object().keys({
+    phone: Joi.string().trim().required().messages({"any.required": "Phone required"}),
+    otp: Joi.string().trim().length(6).required().messages({"string.length": "6-digit OTP required"}),
+    name: Joi.string().trim().optional(),
+    role: Joi.string().valid("customer", "seller", "vendor", "delivery").optional(),
+  }).unknown(false),
+};
+
 
 module.exports = {
   register,
@@ -88,6 +97,7 @@ module.exports = {
   google,
   linkPhone,
   sendOtp,
+  verifyOtp,
   fcmToken,
   forgotPassword,
   changePassword,

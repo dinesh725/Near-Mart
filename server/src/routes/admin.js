@@ -1,9 +1,7 @@
 const express = require("express");
-const { body } = require("express-validator");
 const User = require("../models/User");
 const Invite = require("../models/Invite");
 const { authenticate, authorize, authorizeHierarchy } = require("../middleware/auth");
-const { validate } = require("../middleware/validate");
 const { BadRequest, NotFound, Conflict, Forbidden } = require("../utils/errors");
 const logger = require("../utils/logger");
 const AuditLog = require("../models/AuditLog");
@@ -21,9 +19,10 @@ const router = express.Router();
  */
 router.post("/invite-staff",
     authenticate, authorizeHierarchy("admin"),
-    body("email").isEmail().withMessage("Valid email required").normalizeEmail(),
-    body("role").isIn(Invite.STAFF_ROLES).withMessage("Role must be 'admin' or 'support'"),
-    validate,
+    require("../middleware/validateJoi")(require("joi").object({
+        email: require("joi").string().email().required().messages({ "string.email": "Valid email required" }),
+        role: require("joi").string().valid(...Invite.STAFF_ROLES).required().messages({ "any.only": "Role must be 'admin' or 'support'" })
+    }).unknown(true)),
     async (req, res, next) => {
         try {
             const { email, role } = req.body;
@@ -206,7 +205,9 @@ router.get("/users",
  */
 router.patch("/users/:id/suspend",
     authenticate, authorizeHierarchy("admin"),
-    body("reason").optional().trim(),
+    require("../middleware/validateJoi")(require("joi").object({
+        reason: require("joi").string().trim().optional().allow("")
+    }).unknown(true)),
     async (req, res, next) => {
         try {
             const target = await User.findById(req.params.id);

@@ -1,10 +1,8 @@
 const express = require("express");
-const { body } = require("express-validator");
 const Procurement = require("../models/Procurement");
 const Product = require("../models/Product");
 const VendorInventory = require("../models/VendorInventory");
 const { authenticate, authorize } = require("../middleware/auth");
-const { validate } = require("../middleware/validate");
 const { NotFound } = require("../utils/errors");
 const { notify } = require("../services/notificationService");
 const logger = require("../utils/logger");
@@ -15,11 +13,13 @@ const router = express.Router();
 router.post("/",
     authenticate, authorize("seller", "admin", "super_admin"),
     (req, res, next) => { logger.debug("Incoming PO payload", { body: req.body }); next(); },
-    body("items").isArray({ min: 1 }),
-    body("items.*.productName").notEmpty(),
-    body("items.*.qty").isInt({ min: 1 }),
-    body("items.*.costPrice").isFloat({ min: 0 }),
-    validate,
+    require("../middleware/validateJoi")(require("joi").object({
+        items: require("joi").array().items(require("joi").object({
+            productName: require("joi").string().required(),
+            qty: require("joi").number().integer().min(1).required(),
+            costPrice: require("joi").number().min(0).required()
+        }).unknown(true)).min(1).required()
+    }).unknown(true)),
     async (req, res, next) => {
         try {
             const items = req.body.items.map(item => ({

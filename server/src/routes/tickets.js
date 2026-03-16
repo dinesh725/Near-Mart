@@ -1,8 +1,6 @@
 const express = require("express");
-const { body } = require("express-validator");
-const Ticket = require("../models/Ticket");
 const { authenticate, authorize } = require("../middleware/auth");
-const { validate } = require("../middleware/validate");
+const Ticket = require("../models/Ticket");
 const { NotFound, BadRequest } = require("../utils/errors");
 const { notify } = require("../services/notificationService");
 
@@ -11,9 +9,14 @@ const router = express.Router();
 // ── Create Ticket ─────────────────────────────────────────────────────────────
 router.post("/",
     authenticate,
-    body("issue").trim().notEmpty().withMessage("Issue description required"),
-    body("orderId").optional(),
-    validate,
+    require("../middleware/validateJoi")(require("joi").object({
+        issue: require("joi").string().trim().required().messages({ "any.required": "Issue description required", "string.empty": "Issue description required" }),
+        orderId: require("joi").string().trim().optional(),
+        problemItems: require("joi").array().optional(),
+        reasonCategory: require("joi").string().optional(),
+        images: require("joi").array().optional(),
+        priority: require("joi").string().optional()
+    }).unknown(true)),
     async (req, res, next) => {
         try {
             const ticket = await Ticket.create({
@@ -59,9 +62,10 @@ router.get("/", authenticate, async (req, res, next) => {
 // ── Send Message ──────────────────────────────────────────────────────────────
 router.post("/:id/message",
     authenticate,
-    body("text").trim().notEmpty(),
-    body("from").optional().isIn(["customer", "agent", "system"]),
-    validate,
+    require("../middleware/validateJoi")(require("joi").object({
+        text: require("joi").string().trim().required(),
+        from: require("joi").string().valid("customer", "agent", "system").optional()
+    }).unknown(true)),
     async (req, res, next) => {
         try {
             const ticket = await Ticket.findById(req.params.id);
