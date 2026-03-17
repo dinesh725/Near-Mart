@@ -6,7 +6,6 @@ const compression = require("compression");
 const config = require("./config");
 const { generalLimiter, sensitiveLimiter, financialLimiter } = require("./middleware/rateLimiter");
 const requestId = require("./middleware/requestId");
-const requireActive = require("./middleware/requireActive");
 const { abuseDetector } = require("./middleware/abuseDetector");
 const mongoSanitize = require("express-mongo-sanitize");
 const xss = require("xss-clean");
@@ -134,11 +133,6 @@ app.use("/api/wallet/verify-topup", financialLimiter);
 
 // ── Abuse Detection ──────────────────────────────────────────────────────────
 app.use(abuseDetector);
-
-// ── Account Suspension Guard (block suspended users from financial routes) ──
-app.use("/api/payments", requireActive);
-app.use("/api/orders", requireActive);
-app.use("/api/wallet", requireActive);
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 app.get("/", (req, res) => {
