@@ -31,7 +31,12 @@ const orderVelocityCheck = async (req, res, next) => {
         next();
     } catch (err) {
         // Fail open — don't block checkout if velocity check errors
-        logger.error("Order velocity check error", { error: err.message });
+        logger.error("Order velocity check error (Fail-Open)", { 
+            error: err.message,
+            userId: req.user ? req.user._id.toString() : "anonymous",
+            ip: req.ip,
+            route: req.originalUrl
+        });
         next();
     }
 };

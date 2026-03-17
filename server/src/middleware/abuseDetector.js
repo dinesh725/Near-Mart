@@ -45,23 +45,32 @@ function recordSuspiciousEvent(ip, reason) {
  * Middleware that checks if an IP is temporarily blocked.
  */
 const abuseDetector = (req, res, next) => {
-    const ip = req.ip;
-    const entry = ipTracker.get(ip);
+    try {
+        const ip = req.ip;
+        const entry = ipTracker.get(ip);
 
-    if (entry && entry.blockedUntil) {
-        if (Date.now() < entry.blockedUntil) {
-            logger.warn("Request blocked — IP abuse detected", { ip, endpoint: req.originalUrl });
-            return res.status(429).json({
-                ok: false,
-                error: "Your IP has been temporarily blocked due to suspicious activity.",
-            });
+        if (entry && entry.blockedUntil) {
+            if (Date.now() < entry.blockedUntil) {
+                logger.warn("Request blocked — IP abuse detected", { ip, endpoint: req.originalUrl });
+                return res.status(429).json({
+                    ok: false,
+                    error: "Your IP has been temporarily blocked due to suspicious activity.",
+                });
+            }
+            // Block expired — clean up
+            entry.blockedUntil = null;
+            entry.events = [];
         }
-        // Block expired — clean up
-        entry.blockedUntil = null;
-        entry.events = [];
-    }
 
-    next();
+        next();
+    } catch (err) {
+        logger.error("Abuse detector error (Fail-Open)", { 
+            error: err.message, 
+            ip: req.ip, 
+            route: req.originalUrl 
+        });
+        next();
+    }
 };
 
 // Periodic cleanup to prevent memory leaks (every 5 minutes)

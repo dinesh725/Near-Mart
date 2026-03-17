@@ -2,6 +2,7 @@ const jwt = require("jsonwebtoken");
 const config = require("../config");
 const User = require("../models/User");
 const { Unauthorized, Forbidden } = require("../utils/errors");
+const logger = require("../utils/logger");
 
 /**
  * Verify JWT access token and attach user to req.
@@ -17,6 +18,11 @@ const authenticate = async (req, res, next) => {
         const user = await User.findById(decoded.id);
 
         if (!user) throw new Unauthorized("User not found");
+        
+        // ── 🔴 CRITICAL: Globally Enforce Account Suspension ──
+        if (user.status === "suspended") {
+            throw new Forbidden("Account is suspended. Please contact support.");
+        }
 
         req.user = user;
         next();
@@ -77,7 +83,7 @@ const requireVerification = (req, res, next) => {
 };
 
 /**
- * Generate token pair
+ * Generate token pair (Internal only)
  */
 const generateTokens = (userId) => {
     const accessToken = jwt.sign({ id: userId }, config.jwt.secret, {
@@ -89,5 +95,34 @@ const generateTokens = (userId) => {
     return { accessToken, refreshToken };
 };
 
-module.exports = { authenticate, authorize, authorizeHierarchy, requireVerification, generateTokens };
+/**
+ * ── 🔴 SECURE TOKEN WRAPPER (MANDATORY) ──
+ * Always fetch fresh user, enforce status guard, and throw if suspended.
+ */
+const safeGenerateTokens = async (userId) => {
+    const freshUser = await User.findById(userId);
+    if (!freshUser) {
+        throw new Unauthorized("User not found during token issuance");
+    }
+
+    if (freshUser.status === "suspended") {
+        logger.warn("auth:token_blocked", {
+            event: "TOKEN_ISSUANCE_BLOCKED",
+            userId,
+            reason: "Account is suspended",
+            timestamp: new Date().toISOString(),
+        });
+        throw new Forbidden("Account is suspended. Tokens will not be issued.");
+    }
+
+    return generateTokens(freshUser._id);
+};
+
+module.exports = { 
+    authenticate, 
+    authorize, 
+    authorizeHierarchy, 
+    requireVerification, 
+    safeGenerateTokens 
+};
 

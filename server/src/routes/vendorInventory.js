@@ -1,5 +1,4 @@
 const express = require("express");
-const { body } = require("express-validator");
 const VendorInventory = require("../models/VendorInventory");
 const { authenticate, authorize } = require("../middleware/auth");
 const { validate } = require("../middleware/validate");

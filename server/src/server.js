@@ -35,6 +35,14 @@ async function flushLocationBuffer() {
 // ── Connect to MongoDB & start server ─────────────────────────────────────────
 const start = async () => {
     try {
+        // ── 🔴 STRICT ENV VALIDATION ──
+        const requiredEnvs = ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "JWT_SECRET"];
+        const missing = requiredEnvs.filter(env => !process.env[env]);
+        if (missing.length > 0) {
+            logger.error("CRITICAL FATAL: Missing required environment variables. Halting startup.", { missing });
+            process.exit(1);
+        }
+
         logger.info(`Connecting to MongoDB: ${config.mongoUri}`);
         try {
             await mongoose.connect(config.mongoUri);

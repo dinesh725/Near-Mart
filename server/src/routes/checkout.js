@@ -1,6 +1,5 @@
 const express = require("express");
 const router = express.Router();
-const { body } = require("express-validator");
 const Order = require("../models/Order");
 const Product = require("../models/Product");
 const idempotencyGuard = require("../middleware/idempotency");

@@ -8,8 +8,8 @@ const userValidation = require("../validations/user.validation");
 const { authLimiter } = require("../middleware/rateLimiter");
 const verifyCaptcha = require("../middleware/verifyCaptcha");
 const { recordSuspiciousEvent } = require("../middleware/abuseDetector");
-const { BadRequest, Unauthorized, Conflict } = require("../utils/errors");
-const { authenticate } = require("../middleware/auth");
+const { BadRequest, Unauthorized, Conflict, Forbidden } = require("../utils/errors");
+const { authenticate, safeGenerateTokens } = require("../middleware/auth");
 const logger = require("../utils/logger");
 const EmailService = require("../services/emailService");
 const SmsService = require("../services/smsService");
@@ -37,7 +37,7 @@ router.post("/register",
             if (exists) throw new Conflict("Email already registered");
 
             const user = await User.create({ name, email, password, role });
-            const tokens = generateTokens(user._id);
+            const tokens = await safeGenerateTokens(user._id);
 
             user.refreshToken = tokens.refreshToken;
             await user.save();
@@ -86,7 +86,7 @@ router.post("/accept-invite",
             invite.usedBy = user._id;
             await invite.save();
 
-            const tokens = generateTokens(user._id);
+            const tokens = await safeGenerateTokens(user._id);
             user.refreshToken = tokens.refreshToken;
             await user.save();
 
@@ -121,7 +121,14 @@ router.post("/login",
 
             // ── Suspended account block ────────────────────────────────────
             if (user && user.status === "suspended") {
-                throw new Unauthorized("Account suspended. Contact support.");
+                logger.warn("auth:suspended_login", {
+                    event: "SUSPENDED_USER_LOGIN_ATTEMPT",
+                    userId: user._id,
+                    ip: req.ip,
+                    route: req.originalUrl,
+                    timestamp: new Date().toISOString(),
+                });
+                throw new Forbidden("Account suspended. Contact support.");
             }
 
             // ── Per-account lockout check ──────────────────────────────────
@@ -197,7 +204,7 @@ router.post("/login",
                 logger.info(`OTP cost-control limits organically reset for user ${user._id}`);
             }
 
-            const tokens = generateTokens(user._id);
+            const tokens = await safeGenerateTokens(user._id);
             user.refreshToken = tokens.refreshToken;
             await user.save();
 
@@ -313,7 +320,7 @@ router.post("/mfa/login",
                 throw new Unauthorized("Invalid TOTP token");
             }
 
-            const tokens = generateTokens(user._id);
+            const tokens = await safeGenerateTokens(user._id);
             user.refreshToken = tokens.refreshToken;
             await user.save();
 
@@ -334,7 +341,7 @@ router.post("/demo/:role",
             const user = await User.findOne({ role, email: new RegExp(`^demo\\.${role}@`) });
             if (!user) throw new BadRequest(`No demo user for role: ${role}`);
 
-            const tokens = generateTokens(user._id);
+            const tokens = await safeGenerateTokens(user._id);
             user.refreshToken = tokens.refreshToken;
             await user.save();
 
@@ -355,7 +362,23 @@ router.post("/refresh", async (req, res, next) => {
         if (!user || user.refreshToken !== refreshToken)
             throw new Unauthorized("Invalid refresh token");
 
-        const tokens = generateTokens(user._id);
+        let tokens;
+        try {
+            tokens = await safeGenerateTokens(user._id);
+        } catch (securityErr) {
+            // ── 🔴 CRITICAL: Invalidate refresh token if suspension/security failure ──
+            user.refreshToken = null;
+            await user.save();
+            logger.warn("auth:refresh_denied", {
+                event: "REFRESH_DENIED_SUSPENSION",
+                userId: user._id,
+                ip: req.ip,
+                route: req.originalUrl,
+                timestamp: new Date().toISOString(),
+            });
+            throw securityErr;
+        }
+
         user.refreshToken = tokens.refreshToken;
         await user.save();
 
@@ -452,13 +475,29 @@ router.post("/google",
             // Security: clamp role to public roles only
             const role = PUBLIC_ROLES.includes(req.body.role) ? req.body.role : "customer";
 
+            // ── Validate Required ENV Variables ──
+            if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET || !process.env.GOOGLE_CALLBACK_URL) {
+                logger.error("Missing Google Auth environment variables", { 
+                    id: !!process.env.GOOGLE_CLIENT_ID, 
+                    secret: !!process.env.GOOGLE_CLIENT_SECRET, 
+                    callback: !!process.env.GOOGLE_CALLBACK_URL 
+                });
+                return res.status(500).json({ ok: false, error: "Authentication service configuration error" });
+            }
+
             // Verify Google Token
             const ticket = await googleClient.verifyIdToken({
                 idToken: token,
                 audience: process.env.GOOGLE_CLIENT_ID,
             });
             const payload = ticket.getPayload();
-            const { sub: googleId, email, name, picture } = payload;
+            const { sub: googleId, email, name, picture, email_verified } = payload;
+
+            // ── Strict OAuth Profile Validation ──
+            if (!email || !email_verified) {
+                logger.warn("OAuth failure: missing or unverified email", { ip: req.ip, route: req.originalUrl });
+                throw new BadRequest("Your Google account must have a verified email address.");
+            }
 
             // Find or Create Identity
             let user = await User.findOne({ $or: [{ googleId }, { email }] });
@@ -486,14 +525,17 @@ router.post("/google",
                 }
             }
 
-            const tokens = generateTokens(user._id);
+            const tokens = await safeGenerateTokens(user._id);
             user.refreshToken = tokens.refreshToken;
             await user.save();
 
             res.json({ ok: true, user: user.toJSON(), ...tokens, isNewUser });
         } catch (err) {
             logger.warn(`Google auth failed: ${err.message}`);
-            next(new Unauthorized("Invalid Google Token"));
+            if (err.statusCode) {
+                return next(err);
+            }
+            next(new Unauthorized("Invalid Google Token or Authentication Failed"));
         }
     }
 );
@@ -547,12 +589,24 @@ router.post("/google/mobile-verify", async (req, res, next) => {
         const { token } = req.body;
         if (!token) return res.status(400).json({ ok: false, error: "Missing token" });
 
+        // ── Validate Required ENV Variables ──
+        if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET || !process.env.GOOGLE_CALLBACK_URL) {
+            logger.error("Missing Google Auth environment variables on mobile-verify");
+            return res.status(500).json({ ok: false, error: "Authentication service configuration error" });
+        }
+
         const ticket = await googleClient.verifyIdToken({
             idToken: token,
             audience: process.env.GOOGLE_CLIENT_ID,
         });
         const payload = ticket.getPayload();
-        const { sub: googleId, email, name, picture } = payload;
+        const { sub: googleId, email, name, picture, email_verified } = payload;
+
+        // ── Strict OAuth Profile Validation ──
+        if (!email || !email_verified) {
+            logger.warn("OAuth failure: missing or unverified email (mobile)", { ip: req.ip, route: req.originalUrl });
+            throw new BadRequest("Your Google account must have a verified email address.");
+        }
 
         let user = await User.findOne({ $or: [{ googleId }, { email }] });
         let isNewUser = false;
@@ -576,7 +630,7 @@ router.post("/google/mobile-verify", async (req, res, next) => {
             }
         }
 
-        const tokens = generateTokens(user._id);
+        const tokens = await safeGenerateTokens(user._id);
         user.refreshToken = tokens.refreshToken;
         await user.save();
 
@@ -726,7 +780,7 @@ router.post("/verify-otp",
                 }
             }
 
-            const tokens = generateTokens(user._id);
+            const tokens = await safeGenerateTokens(user._id);
             user.refreshToken = tokens.refreshToken;
             await user.save();
 

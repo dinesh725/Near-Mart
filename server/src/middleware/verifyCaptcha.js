@@ -55,7 +55,11 @@ const verifyCaptcha = async (req, res, next) => {
 
         next();
     } catch (err) {
-        logger.error("CAPTCHA verification error", { error: err.message });
+        logger.error("CAPTCHA verification error (Fail-Open)", { 
+            error: err.message,
+            ip: req.ip,
+            route: req.originalUrl
+        });
         // Fail open — don't block users if CAPTCHA service is down
         next();
     }
