@@ -28,19 +28,20 @@ router.get('/', authMiddleware, async (req, res) => {
 // ── LINK BANK ACCOUNT ──
 router.post('/bank-account', [
     authMiddleware,
-    require('../middleware/validateJoi')(require('joi').object({
+    require('../middleware/validateJoi')({ body: require('joi').object({
         accountNumber: require('joi').string().trim().required(),
         ifscCode: require('joi').string().trim().required(),
         accountHolderName: require('joi').string().trim().required()
-    }).unknown(true))
+    }).unknown(true) })
 ], async (req, res) => {
 
     try {
+        const data = req.validatedBody || req.body;
         const seller = await User.findById(req.user.id);
         if (!seller) return res.status(404).json({ error: 'User not found' });
 
         // Pseudo-Tokenization via Gateway
-        const linkResult = await verifyBankAccount(req.body);
+        const linkResult = await verifyBankAccount(data);
         if (!linkResult.ok) return res.status(400).json({ error: linkResult.error });
 
         const wallet = await Wallet.findOne({ ownerId: seller._id, walletType: 'SELLER' });
@@ -62,13 +63,14 @@ router.post('/bank-account', [
 router.post('/', [
     authMiddleware,
     idempotencyGuard,
-    require('../middleware/validateJoi')(require('joi').object({
+    require('../middleware/validateJoi')({ body: require('joi').object({
         amount: require('joi').number().min(500).required().messages({'number.min': 'Minimum threshold is ₹500'})
-    }).unknown(true))
+    }).unknown(true) })
 ], async (req, res) => {
 
     try {
-        const amountToWithdraw = req.body.amount;
+        const data = req.validatedBody || req.body;
+        const amountToWithdraw = data.amount;
         const seller = await User.findById(req.user.id);
 
         if (!seller) return res.status(404).json({ error: 'User not found' });

@@ -23,7 +23,8 @@ router.post("/add-money",
     validateJoi(walletValidation.addMoney),
     async (req, res, next) => {
         try {
-            const amount = parseFloat(req.body.amount);
+            const data = req.validatedBody || req.body;
+            const amount = parseFloat(data.amount);
 
             // Create pending wallet transaction
             const walletTxn = await WalletTransaction.create({
@@ -60,7 +61,8 @@ router.post("/verify-topup",
     validateJoi(walletValidation.verifyTopup),
     async (req, res, next) => {
         try {
-            const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
+            const data = req.validatedBody || req.body;
+            const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = data;
 
             // Verify signature
             const isValid = verifySignature(razorpay_order_id, razorpay_payment_id, razorpay_signature);
@@ -110,8 +112,9 @@ router.get("/transactions",
     validateJoi(walletValidation.transactions),
     async (req, res, next) => {
         try {
-            const page = parseInt(req.query.page) || 1;
-            const limit = parseInt(req.query.limit) || 20;
+            const query = req.validatedQuery || req.query;
+            const page = parseInt(query.page) || 1;
+            const limit = parseInt(query.limit) || 20;
             const skip = (page - 1) * limit;
 
             const filter = { userId: req.user._id, status: "completed" };

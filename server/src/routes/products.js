@@ -168,12 +168,13 @@ router.get("/",
     validateJoi(productValidation.listProducts),
     async (req, res, next) => {
         try {
-            const page = parseInt(req.query.page) || 1;
-            const limit = parseInt(req.query.limit) || 20;
+            const query = req.validatedQuery || req.query;
+            const page = parseInt(query.page) || 1;
+            const limit = parseInt(query.limit) || 20;
             const skip = (page - 1) * limit;
 
-            const categoryFilter = req.query.category || "all";
-            const searchFilter = req.query.search || "all";
+            const categoryFilter = query.category || "all";
+            const searchFilter = query.search || "all";
             const cacheKey = `products_list:${categoryFilter}:${searchFilter}:${page}:${limit}`;
 
             const cachedMatch = await redisClient.get(cacheKey);
@@ -182,11 +183,11 @@ router.get("/",
             }
 
             const filter = { status: "active" };
-            if (req.query.category) filter.category = req.query.category;
-            if (req.query.search) {
+            if (query.category) filter.category = query.category;
+            if (query.search) {
                 filter.$or = [
-                    { name: { $regex: req.query.search, $options: "i" } },
-                    { category: { $regex: req.query.search, $options: "i" } },
+                    { name: { $regex: query.search, $options: "i" } },
+                    { category: { $regex: query.search, $options: "i" } },
                 ];
             }
 
@@ -211,9 +212,12 @@ router.get("/",
 
 
 // ── Get Single Product ────────────────────────────────────────────────────────
-router.get("/:id", async (req, res, next) => {
+router.get("/:id", 
+    require("../middleware/validateJoi")({ params: require("joi").object({ id: require("joi").string().required() }) }),
+    async (req, res, next) => {
     try {
-        const product = await Product.findById(req.params.id);
+        const params = req.validatedParams || req.params;
+        const product = await Product.findById(params.id);
         if (!product) throw new NotFound("Product not found");
         res.json({ ok: true, product });
     } catch (err) { next(err); }
@@ -225,8 +229,9 @@ router.post("/",
     validateJoi(productValidation.createProduct),
     async (req, res, next) => {
         try {
+            const data = req.validatedBody || req.body;
             const product = await Product.create({
-                ...req.body,
+                ...data,
                 sellerId: req.user._id,
             });
             await SearchEngine.syncProduct(product);
@@ -264,14 +269,16 @@ router.patch("/:id/stock",
     validateJoi(productValidation.updateStock),
     async (req, res, next) => {
         try {
-            const product = await Product.findById(req.params.id);
+            const data = req.validatedBody || req.body;
+            const params = req.validatedParams || req.params;
+            const product = await Product.findById(params.id);
             if (!product) throw new NotFound("Product not found");
 
             if (req.user.role !== "admin" && product.sellerId?.toString() !== req.user._id.toString()) {
                 throw new NotFound("Product not found or unauthorized to edit stock");
             }
 
-            product.stock = Math.max(0, product.stock + req.body.delta);
+            product.stock = Math.max(0, product.stock + data.delta);
             await product.save();
             await SearchEngine.syncProduct(product);
             res.json({ ok: true, product });
@@ -282,9 +289,11 @@ router.patch("/:id/stock",
 // ── Delete Product (admin / seller) ──────────────────────────────────────────
 router.delete("/:id",
     authenticate, authorize("admin", "super_admin", "seller"),
+    require("../middleware/validateJoi")({ params: require("joi").object({ id: require("joi").string().required() }) }),
     async (req, res, next) => {
         try {
-            const product = await Product.findById(req.params.id);
+            const params = req.validatedParams || req.params;
+            const product = await Product.findById(params.id);
             if (!product) throw new NotFound("Product not found");
 
             if (req.user.role !== "admin" && req.user.role !== "super_admin" && product.sellerId.toString() !== req.user._id.toString()) {
@@ -292,20 +301,23 @@ router.delete("/:id",
             }
 
             await product.deleteOne(); // Use deleteOne to trigger any hooks if they exist, or just remove
-            await SearchEngine.removeProduct(req.params.id);
+            await SearchEngine.removeProduct(params.id);
             res.json({ ok: true, message: "Deleted successfully" });
         } catch (err) { next(err); }
     }
 );
 
 // ── Get Product Reviews (paginated) ──────────────────────────────────────────
-router.get("/:id/reviews", async (req, res, next) => {
+router.get("/:id/reviews", 
+    require("../middleware/validateJoi")({ params: require("joi").object({ id: require("joi").string().required() }) }),
+    async (req, res, next) => {
     try {
         const page = parseInt(req.query.page) || 1;
         const limit = parseInt(req.query.limit) || 10;
         const skip = (page - 1) * limit;
 
-        const product = await Product.findById(req.params.id).select("reviews rating reviewCount ratingDist");
+        const params = req.validatedParams || req.params;
+        const product = await Product.findById(params.id).select("reviews rating reviewCount ratingDist");
         if (!product) throw new NotFound("Product not found");
 
         const total = product.reviews.length;
@@ -331,8 +343,10 @@ router.post("/:id/rate",
     validateJoi(productValidation.rateProduct),
     async (req, res, next) => {
         try {
-            const { rating, comment = "" } = req.body;
-            const product = await Product.findById(req.params.id);
+            const data = req.validatedBody || req.body;
+            const { rating, comment = "" } = data;
+            const params = req.validatedParams || req.params;
+            const product = await Product.findById(params.id);
             if (!product) throw new NotFound("Product not found");
 
             // Remove old review from this user if exists
@@ -382,15 +396,17 @@ router.patch("/:id/images",
     validateJoi(productValidation.updateImages),
     async (req, res, next) => {
         try {
-            const product = await Product.findById(req.params.id);
+            const data = req.validatedBody || req.body;
+            const params = req.validatedParams || req.params;
+            const product = await Product.findById(params.id);
             if (!product) throw new NotFound("Product not found");
 
             // Only the seller who owns it (or admin) can update images
             if (req.user.role !== "admin" && product.sellerId?.toString() !== req.user._id.toString())
                 throw new NotFound("Product not found");
 
-            product.images = req.body.images;
-            product.imageUrl = req.body.images[0] || product.imageUrl;
+            product.images = data.images;
+            product.imageUrl = data.images[0] || product.imageUrl;
             await product.save();
 
             res.json({ ok: true, images: product.images, imageUrl: product.imageUrl });

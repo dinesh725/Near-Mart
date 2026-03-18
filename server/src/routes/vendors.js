@@ -24,14 +24,17 @@ router.get("/", async (req, res, next) => {
 
 // ── Get Single Vendor Profile ──────────────────────────────────────────────────
 // GET /api/vendors/:id
-router.get("/:id", async (req, res, next) => {
+router.get("/:id", 
+    require("../middleware/validateJoi")({ params: require("joi").object({ id: require("joi").string().required() }) }),
+    async (req, res, next) => {
     try {
-        const vendor = await User.findOne({ _id: req.params.id, role: "vendor" })
+        const params = req.validatedParams || req.params;
+        const vendor = await User.findOne({ _id: params.id, role: "vendor" })
             .select("_id name companyName email phone city state country gst rating isVerified createdAt");
 
         if (!vendor) throw new NotFound("Vendor not found");
 
-        const inventoryCount = await VendorInventory.countDocuments({ vendorId: req.params.id });
+        const inventoryCount = await VendorInventory.countDocuments({ vendorId: params.id });
         res.json({ ...vendor.toJSON(), inventoryCount });
     } catch (err) { next(err); }
 });

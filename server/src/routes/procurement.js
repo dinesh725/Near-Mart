@@ -13,16 +13,17 @@ const router = express.Router();
 router.post("/",
     authenticate, authorize("seller", "admin", "super_admin"),
     (req, res, next) => { logger.debug("Incoming PO payload", { body: req.body }); next(); },
-    require("../middleware/validateJoi")(require("joi").object({
+    require("../middleware/validateJoi")({ body: require("joi").object({
         items: require("joi").array().items(require("joi").object({
             productName: require("joi").string().required(),
             qty: require("joi").number().integer().min(1).required(),
             costPrice: require("joi").number().min(0).required()
         }).unknown(true)).min(1).required()
-    }).unknown(true)),
+    }).unknown(true) }),
     async (req, res, next) => {
         try {
-            const items = req.body.items.map(item => ({
+            const data = req.validatedBody || req.body;
+            const items = data.items.map(item => ({
                 productId: item.productId,
                 productName: item.productName,
                 qty: Number(item.qty),
@@ -44,8 +45,8 @@ router.post("/",
                 totalWeight,
                 distanceKm,
                 deliveryFee,
-                vendorId: req.body.vendorId || undefined,
-                vendorName: req.body.vendorName || undefined,
+                vendorId: data.vendorId || undefined,
+                vendorName: data.vendorName || undefined,
             });
 
             await notify("vendor", `New bulk request from ${procurement.sellerName}: ${items.length} items`, "demand");
@@ -80,9 +81,11 @@ router.get("/", authenticate, async (req, res, next) => {
 // ── Vendor Accept Procurement ──────────────────────────────────────────────────
 router.patch("/:id/accept",
     authenticate, authorize("vendor", "admin", "super_admin"),
+    require("../middleware/validateJoi")({ params: require("joi").object({ id: require("joi").string().required() }) }),
     async (req, res, next) => {
         try {
-            const proc = await Procurement.findById(req.params.id);
+            const params = req.validatedParams || req.params;
+            const proc = await Procurement.findById(params.id);
             if (!proc) throw new NotFound();
 
             // Deduct stock from Vendor's live inventory for ALL items BEFORE saving
@@ -135,9 +138,13 @@ router.get("/transit/available", authenticate, authorize("delivery"), async (req
 });
 
 // ── B2B Transit: Accept Job (Pickup) ──────────────────────────────────────────
-router.patch("/:id/pickup", authenticate, authorize("delivery"), async (req, res, next) => {
+router.patch("/:id/pickup", 
+    authenticate, authorize("delivery"), 
+    require("../middleware/validateJoi")({ params: require("joi").object({ id: require("joi").string().required() }) }),
+    async (req, res, next) => {
     try {
-        const proc = await Procurement.findById(req.params.id);
+        const params = req.validatedParams || req.params;
+        const proc = await Procurement.findById(params.id);
         if (!proc || proc.status !== "accepted") throw new NotFound();
 
         proc.status = "shipped";
@@ -151,10 +158,14 @@ router.patch("/:id/pickup", authenticate, authorize("delivery"), async (req, res
 });
 
 // ── B2B Transit: Complete Delivery (Drop-off & OTP) ───────────────────────────
-router.patch("/:id/deliver", authenticate, authorize("delivery"), async (req, res, next) => {
+router.patch("/:id/deliver", 
+    authenticate, authorize("delivery"), 
+    require("../middleware/validateJoi")({ params: require("joi").object({ id: require("joi").string().required() }) }),
+    async (req, res, next) => {
     try {
         const { otp } = req.body;
-        const proc = await Procurement.findById(req.params.id);
+        const params = req.validatedParams || req.params;
+        const proc = await Procurement.findById(params.id);
         if (!proc || proc.status !== "shipped") throw new NotFound();
 
         // 1. High-Value Secure OTP check

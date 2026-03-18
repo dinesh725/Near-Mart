@@ -53,16 +53,17 @@ router.get("/nearby", async (req, res, next) => {
 // ── Seller Onboarding ─────────────────────────────────────────────────────────
 // PATCH /api/sellers/onboard
 router.patch("/onboard", authenticate, authorize("seller", "admin", "super_admin"),
-    require("../middleware/validateJoi")(require("joi").object({
+    require("../middleware/validateJoi")({ body: require("joi").object({
         storeName: require("joi").string().trim().optional(),
         storeDescription: require("joi").string().trim().optional(),
         storePhone: require("joi").string().trim().optional(),
         deliveryRadius: require("joi").number().optional(),
         isOpen: require("joi").boolean().optional()
-    }).unknown(true)),
+    }).unknown(true) }),
     async (req, res, next) => {
         try {
-            const { storeName, storeDescription, storePhone, deliveryRadius, isOpen, businessHours, address, lat, lng } = req.body;
+            const data = req.validatedBody || req.body;
+            const { storeName, storeDescription, storePhone, deliveryRadius, isOpen, businessHours, address, lat, lng } = data;
 
             if (storeName !== undefined) req.user.storeName = storeName;
             if (storeDescription !== undefined) req.user.storeDescription = storeDescription;
@@ -110,25 +111,31 @@ router.patch("/toggle-open", authenticate, authorize("seller"), async (req, res,
 
 // ── Get Seller Profile ────────────────────────────────────────────────────────
 // GET /api/sellers/:id
-router.get("/:id", async (req, res, next) => {
+router.get("/:id", 
+    require("../middleware/validateJoi")({ params: require("joi").object({ id: require("joi").string().required() }) }),
+    async (req, res, next) => {
     try {
-        const seller = await User.findOne({ _id: req.params.id, role: "seller" })
+        const params = req.validatedParams || req.params;
+        const seller = await User.findOne({ _id: params.id, role: "seller" })
             .select("_id name storeName storeDescription storePhone location businessHours isOpen rating deliveryRadius");
         if (!seller) throw new NotFound("Seller not found");
 
-        const productCount = await Product.countDocuments({ sellerId: req.params.id, status: "active" });
+        const productCount = await Product.countDocuments({ sellerId: params.id, status: "active" });
         res.json({ ok: true, seller: { ...seller.toJSON(), productCount } });
     } catch (err) { next(err); }
 });
 
 // ── Seller's Products ─────────────────────────────────────────────────────────
 // GET /api/sellers/:id/products?category=&q=
-router.get("/:id/products", async (req, res, next) => {
+router.get("/:id/products", 
+    require("../middleware/validateJoi")({ params: require("joi").object({ id: require("joi").string().required() }) }),
+    async (req, res, next) => {
     try {
         const { category, q, page = 1, limit = 40 } = req.query;
         const skip = (parseInt(page) - 1) * parseInt(limit);
 
-        const filter = { sellerId: req.params.id, status: "active", stock: { $gt: 0 } };
+        const params = req.validatedParams || req.params;
+        const filter = { sellerId: params.id, status: "active", stock: { $gt: 0 } };
         if (category) filter.category = category;
         if (q) filter.$text = { $search: q };
 

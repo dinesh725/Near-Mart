@@ -29,7 +29,8 @@ router.post("/checkout",
     validateJoi(paymentValidation.checkout),
     async (req, res, next) => {
         try {
-            const { items, address, paymentMethod } = req.body;
+            const data = req.validatedBody || req.body;
+            const { items, address, paymentMethod } = data;
 
             // 1. Validate & Cluster items by Seller — BATCH FETCH (Phase-8 perf fix)
             const productIds = items.map(i => i.productId);
@@ -330,7 +331,8 @@ router.post("/verify",
     validateJoi(paymentValidation.verify),
     async (req, res, next) => {
         try {
-            const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
+            const data = req.validatedBody || req.body;
+            const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = data;
 
             // HMAC signature verification — ensures response came from Razorpay
             const isValid = verifySignature(razorpay_order_id, razorpay_payment_id, razorpay_signature);
@@ -636,9 +638,13 @@ async function handlePaymentFailed(payment) {
 }
 
 // ── Payment Status ────────────────────────────────────────────────────────────
-router.get("/status/:orderId", authenticate, async (req, res, next) => {
+router.get("/status/:orderId", 
+    authenticate, 
+    require("../middleware/validateJoi")({ params: require("joi").object({ orderId: require("joi").string().required() }) }),
+    async (req, res, next) => {
     try {
-        const order = await Order.findById(req.params.orderId);
+        const params = req.validatedParams || req.params;
+        const order = await Order.findById(params.orderId);
         if (!order) throw new NotFound("Order not found");
         const transaction = await Transaction.findOne({ orderId: order._id });
 
@@ -655,9 +661,11 @@ router.get("/status/:orderId", authenticate, async (req, res, next) => {
 // ── Reconciliation — Check Razorpay for missed payments ───────────────────────
 router.post("/reconcile/:orderId",
     authenticate, authorize("admin", "super_admin", "support"),
+    require("../middleware/validateJoi")({ params: require("joi").object({ orderId: require("joi").string().required() }) }),
     async (req, res, next) => {
         try {
-            const order = await Order.findById(req.params.orderId);
+            const params = req.validatedParams || req.params;
+            const order = await Order.findById(params.orderId);
             if (!order) throw new NotFound("Order not found");
             if (order.paymentStatus === "paid") {
                 return res.json({ ok: true, message: "Already paid", order });
@@ -729,9 +737,11 @@ router.post("/reconcile/:orderId",
 // ── Refund ────────────────────────────────────────────────────────────────────
 router.post("/refund/:orderId",
     authenticate, authorize("admin", "super_admin", "support"),
+    require("../middleware/validateJoi")({ params: require("joi").object({ orderId: require("joi").string().required() }) }),
     async (req, res, next) => {
         try {
-            const order = await Order.findById(req.params.orderId);
+            const params = req.validatedParams || req.params;
+            const order = await Order.findById(params.orderId);
             if (!order) throw new NotFound("Order not found");
             if (order.paymentStatus !== "paid") throw new BadRequest("Order not paid");
 
@@ -824,9 +834,11 @@ router.get("/admin/summary",
 // Called by frontend when user closes the Razorpay popup or the gateway fails
 router.post("/cancel/:paymentGroupId",
     authenticate,
+    require("../middleware/validateJoi")({ params: require("joi").object({ paymentGroupId: require("joi").string().required() }) }),
     async (req, res, next) => {
         try {
-            const { paymentGroupId } = req.params;
+            const params = req.validatedParams || req.params;
+            const { paymentGroupId } = params;
             const orders = await Order.find({ paymentGroupId, customerId: req.user._id });
             if (!orders || orders.length === 0) throw new NotFound("No orders found for this payment group");
 

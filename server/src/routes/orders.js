@@ -203,9 +203,13 @@ router.get("/stats/counts", authenticate, async (req, res, next) => {
 });
 
 // ── Get Single Order ──────────────────────────────────────────────────────────
-router.get("/:id", authenticate, async (req, res, next) => {
+router.get("/:id", 
+    authenticate, 
+    require("../middleware/validateJoi")({ params: require("joi").object({ id: require("joi").string().required() }) }),
+    async (req, res, next) => {
     try {
-        const order = await Order.findById(req.params.id);
+        const params = req.validatedParams || req.params;
+        const order = await Order.findById(params.id);
         if (!order) throw new NotFound("Order not found");
         res.json({ ok: true, order });
     } catch (err) { next(err); }
@@ -214,9 +218,11 @@ router.get("/:id", authenticate, async (req, res, next) => {
 // ── Confirm Order (seller: PENDING → CONFIRMED) ───────────────────────────────
 router.patch("/:id/confirm",
     authenticate, authorize("seller", "admin", "super_admin"),
+    require("../middleware/validateJoi")({ params: require("joi").object({ id: require("joi").string().required() }) }),
     async (req, res, next) => {
         try {
-            const order = await Order.findById(req.params.id);
+            const params = req.validatedParams || req.params;
+            const order = await Order.findById(params.id);
             if (!order) throw new NotFound("Order not found");
             if (!order.canTransitionTo("CONFIRMED"))
                 throw new BadRequest(`Cannot confirm from status: ${order.status}`);
@@ -252,9 +258,11 @@ router.patch("/:id/confirm",
 // ── Prepare Order (seller: CONFIRMED → PREPARING) ────────────────────────────
 router.patch("/:id/prepare",
     authenticate, authorize("seller", "admin", "super_admin"),
+    require("../middleware/validateJoi")({ params: require("joi").object({ id: require("joi").string().required() }) }),
     async (req, res, next) => {
         try {
-            const order = await Order.findById(req.params.id);
+            const params = req.validatedParams || req.params;
+            const order = await Order.findById(params.id);
             if (!order) throw new NotFound("Order not found");
             if (!order.canTransitionTo("PREPARING"))
                 throw new BadRequest(`Cannot prepare from status: ${order.status}`);
@@ -293,9 +301,11 @@ router.patch("/:id/prepare",
 // ── Accept Order (legacy alias → same as confirm) ─────────────────────────────
 router.patch("/:id/accept",
     authenticate, authorize("seller", "admin", "super_admin"),
+    require("../middleware/validateJoi")({ params: require("joi").object({ id: require("joi").string().required() }) }),
     async (req, res, next) => {
         try {
-            const order = await Order.findById(req.params.id);
+            const params = req.validatedParams || req.params;
+            const order = await Order.findById(params.id);
             if (!order) throw new NotFound("Order not found");
             if (!order.canTransitionTo("CONFIRMED"))
                 throw new BadRequest(`Cannot confirm from status: ${order.status}`);
@@ -326,9 +336,11 @@ router.patch("/:id/accept",
 // ── Reject Order & Partial Refund (Seller) ────────────────────────────────────
 router.patch("/:id/reject",
     authenticate, authorize("seller", "admin", "super_admin"),
+    require("../middleware/validateJoi")({ params: require("joi").object({ id: require("joi").string().required() }) }),
     async (req, res, next) => {
         try {
-            const order = await Order.findById(req.params.id);
+            const params = req.validatedParams || req.params;
+            const order = await Order.findById(params.id);
             if (!order) throw new NotFound("Order not found");
 
             // Allow rejection early on before it's shipped
@@ -407,9 +419,11 @@ router.patch("/:id/reject",
 // ── Ready for Pickup (seller) ─────────────────────────────────────────────────
 router.patch("/:id/ready",
     authenticate, authorize("seller", "admin", "super_admin"),
+    require("../middleware/validateJoi")({ params: require("joi").object({ id: require("joi").string().required() }) }),
     async (req, res, next) => {
         try {
-            const order = await Order.findById(req.params.id);
+            const params = req.validatedParams || req.params;
+            const order = await Order.findById(params.id);
             if (!order) throw new NotFound();
             if (!order.canTransitionTo("READY_FOR_PICKUP"))
                 throw new BadRequest(`Cannot mark ready from status: ${order.status}`);
@@ -456,9 +470,11 @@ router.patch("/:id/ready",
 // ── Delivery Partner Accepts/Claims Order ────────────────────────────────────
 router.patch("/:id/accept-delivery",
     authenticate, authorize("delivery"),
+    require("../middleware/validateJoi")({ params: require("joi").object({ id: require("joi").string().required() }) }),
     async (req, res, next) => {
         try {
-            const { id } = req.params;
+            const params = req.validatedParams || req.params;
+            const { id } = params;
             const io = req.app.get("io");
             const riderId = req.user._id;
             const now = new Date();
@@ -584,9 +600,11 @@ router.patch("/:id/accept-delivery",
 // ── Pickup (delivery actually starts) ─────────────────────────────────────────
 router.patch("/:id/pickup",
     authenticate, authorize("delivery"),
+    require("../middleware/validateJoi")({ params: require("joi").object({ id: require("joi").string().required() }) }),
     async (req, res, next) => {
         try {
-            const order = await Order.findById(req.params.id);
+            const params = req.validatedParams || req.params;
+            const order = await Order.findById(params.id);
             if (!order) throw new NotFound();
             if (!order.canTransitionTo("OUT_FOR_DELIVERY"))
                 throw new BadRequest(`Cannot pickup from status: ${order.status}`);
@@ -626,9 +644,11 @@ router.patch("/:id/pickup",
 // ── Deliver ───────────────────────────────────────────────────────────────────
 router.patch("/:id/deliver",
     authenticate, authorize("delivery"),
+    require("../middleware/validateJoi")({ params: require("joi").object({ id: require("joi").string().required() }) }),
     async (req, res, next) => {
         try {
-            const order = await Order.findById(req.params.id);
+            const params = req.validatedParams || req.params;
+            const order = await Order.findById(params.id);
             if (!order) throw new NotFound();
             if (!order.canTransitionTo("DELIVERED"))
                 throw new BadRequest(`Cannot deliver from status: ${order.status}`);
@@ -707,10 +727,17 @@ router.patch("/:id/deliver",
 // ── Cancel Order ──────────────────────────────────────────────────────────────
 router.patch("/:id/cancel",
     authenticate,
-    validateJoi(orderValidation.cancelOrder),
+    require("../middleware/validateJoi")({
+        params: require("joi").object({ id: require("joi").string().required() }),
+        body: require("joi").object({
+            reason: require("joi").string().trim().required().messages({ "any.required": "Cancellation reason required", "string.empty": "Cancellation reason required" })
+        }).unknown(true)
+    }),
     async (req, res, next) => {
         try {
-            const order = await Order.findById(req.params.id);
+            const data = req.validatedBody || req.body;
+            const params = req.validatedParams || req.params;
+            const order = await Order.findById(params.id);
             if (!order) throw new NotFound();
             if (!order.canTransitionTo("CANCELLED"))
                 throw new BadRequest(`Cannot cancel from status: ${order.status}`);
@@ -719,7 +746,7 @@ router.patch("/:id/cancel",
             const canCancel = isOwner || ["seller", "admin"].includes(req.user.role);
             if (!canCancel) throw new Forbidden("Cannot cancel this order");
 
-            // ── Phase-7: Automatic Refund on Cancellation ──────────────────
+            // ── Phase-7: Automatic Refund on Cancellation ──────────────────────
             const WalletTransaction = require("../models/WalletTransaction");
             const Transaction = require("../models/Transaction");
 
@@ -754,7 +781,7 @@ router.patch("/:id/cancel",
                         orderId: order._id,
                         paymentId: order.paymentId,
                         amountInPaise: Math.round(order.total * 100),
-                        reason: req.body.reason,
+                        reason: data.reason,
                     });
                     order.refundStatus = "processing";
                     order.refundAmount = order.total;
@@ -787,7 +814,7 @@ router.patch("/:id/cancel",
             }
 
             order.status = "CANCELLED";
-            order.cancelReason = req.body.reason;
+            order.cancelReason = data.reason;
             await order.save();
 
             // Unlock rider if active
@@ -834,7 +861,7 @@ router.patch("/:id/cancel",
                 io.emit("orderStatusChanged", { orderId: order._id, status: "CANCELLED", customerId: order.customerId });
             }
 
-            await notify("customer", `Order cancelled. Reason: ${req.body.reason}`, "alert", order.customerId);
+            await notify("customer", `Order cancelled. Reason: ${data.reason}`, "alert", order.customerId);
             await notify("seller", `Order ${order._id} was cancelled`, "alert");
 
             res.json({ ok: true, order });
@@ -845,12 +872,17 @@ router.patch("/:id/cancel",
 // ── Flag Order ────────────────────────────────────────────────────────────────
 router.patch("/:id/flag",
     authenticate,
-    require("../middleware/validateJoi")(require("joi").object({
-        issue: require("joi").string().trim().required().messages({ "any.required": "Issue description required", "string.empty": "Issue description required" })
-    }).unknown(true)),
+    require("../middleware/validateJoi")({
+        params: require("joi").object({ id: require("joi").string().required() }),
+        body: require("joi").object({
+            issue: require("joi").string().trim().required().messages({ "any.required": "Issue description required", "string.empty": "Issue description required" })
+        }).unknown(true)
+    }),
     async (req, res, next) => {
         try {
-            const order = await Order.findById(req.params.id);
+            const data = req.validatedBody || req.body;
+            const params = req.validatedParams || req.params;
+            const order = await Order.findById(params.id);
             if (!order) throw new NotFound();
 
             order.flagged = true;
@@ -861,11 +893,11 @@ router.patch("/:id/flag",
                 userId: order.customerId,
                 customerName: order.customerName,
                 orderId: order._id,
-                issue: req.body.issue,
+                issue: data.issue,
                 priority: "high",
             });
 
-            await notify("support", `🚩 Flagged order: ${order._id} — "${req.body.issue}"`, "ticket");
+            await notify("support", `🚩 Flagged order: ${order._id} — "${data.issue}"`, "ticket");
 
             res.json({ ok: true, order });
         } catch (err) { next(err); }
@@ -938,10 +970,12 @@ router.patch("/shift/end",
 // ── Multi-Drop Route Optimization (Nearest Next greedy TSP) ─────────────────
 router.get("/batch/:batchId/optimized-route",
     authenticate, authorize("delivery"),
+    require("../middleware/validateJoi")({ params: require("joi").object({ batchId: require("joi").string().required() }) }),
     async (req, res, next) => {
         try {
+            const params = req.validatedParams || req.params;
             const orders = await Order.find({
-                batchId: req.params.batchId,
+                batchId: params.batchId,
                 acceptedByPartnerId: req.user._id,
             });
             if (orders.length === 0) return res.json({ ok: true, waypoints: [], orders: [] });
@@ -987,13 +1021,18 @@ router.get("/batch/:batchId/optimized-route",
 // ── Rate Order ────────────────────────────────────────────────────────────────
 router.post("/:id/rate",
     authenticate, authorize("customer"),
-    require("../middleware/validateJoi")(require("joi").object({
-        rating: require("joi").number().integer().min(1).max(5).required().messages({ "number.min": "Rating must be 1-5", "number.max": "Rating must be 1-5" }),
-        review: require("joi").string().max(1000).optional()
-    }).unknown(true)),
+    require("../middleware/validateJoi")({
+        params: require("joi").object({ id: require("joi").string().required() }),
+        body: require("joi").object({
+            rating: require("joi").number().integer().min(1).max(5).required().messages({ "number.min": "Rating must be 1-5", "number.max": "Rating must be 1-5" }),
+            review: require("joi").string().max(1000).optional()
+        }).unknown(true)
+    }),
     async (req, res, next) => {
         try {
-            const order = await Order.findById(req.params.id);
+            const data = req.validatedBody || req.body;
+            const params = req.validatedParams || req.params;
+            const order = await Order.findById(params.id);
             if (!order) throw new NotFound("Order not found");
             if (order.customerId.toString() !== req.user._id.toString())
                 throw new Forbidden("Cannot rate this order");
@@ -1002,13 +1041,13 @@ router.post("/:id/rate",
             if (order.customerRating)
                 throw new BadRequest("Order already rated");
 
-            order.customerRating = req.body.rating;
-            order.customerReview = req.body.review || "";
+            order.customerRating = data.rating;
+            order.customerReview = data.review || "";
             order.ratedAt = new Date();
-            order.events.push({ status: "DELIVERED", note: `Customer rated ${req.body.rating}★` });
+            order.events.push({ status: "DELIVERED", note: `Customer rated ${data.rating}★` });
             await order.save();
 
-            await notify("seller", `⭐ Order #${order._id.toString().slice(-6)} rated ${req.body.rating}/5`, "info");
+            await notify("seller", `⭐ Order #${order._id.toString().slice(-6)} rated ${data.rating}/5`, "info");
             res.json({ ok: true, order });
         } catch (err) { next(err); }
     }
@@ -1142,12 +1181,17 @@ router.post("/:id/reorder",
 // ── Request Return (customer only, within 7 days of delivery) ─────────────────
 router.patch("/:id/request-return",
     authenticate, authorize("customer"),
-    require("../middleware/validateJoi")(require("joi").object({
-        reason: require("joi").string().trim().required().messages({ "any.required": "Return reason is required", "string.empty": "Return reason is required" })
-    }).unknown(true)),
+    require("../middleware/validateJoi")({
+        params: require("joi").object({ id: require("joi").string().required() }),
+        body: require("joi").object({
+            reason: require("joi").string().trim().required().messages({ "any.required": "Return reason is required", "string.empty": "Return reason is required" })
+        }).unknown(true)
+    }),
     async (req, res, next) => {
         try {
-            const order = await Order.findById(req.params.id);
+            const data = req.validatedBody || req.body;
+            const params = req.validatedParams || req.params;
+            const order = await Order.findById(params.id);
             if (!order) throw new NotFound("Order not found");
             if (order.customerId.toString() !== req.user._id.toString())
                 throw new Forbidden("Cannot request return for this order");
@@ -1163,12 +1207,12 @@ router.patch("/:id/request-return",
 
             order.status = "RETURN_REQUESTED";
             order.returnStatus = "requested";
-            order.returnReason = req.body.reason;
+            order.returnReason = data.reason;
             order.returnRequestedAt = new Date();
-            order.events.push({ status: "RETURN_REQUESTED", note: `Customer requested return: ${req.body.reason}` });
+            order.events.push({ status: "RETURN_REQUESTED", note: `Customer requested return: ${data.reason}` });
             await order.save();
 
-            await notify("seller", `↩ Return requested for Order #${order._id.toString().slice(-6)}: ${req.body.reason}`, "alert", order.sellerId);
+            await notify("seller", `↩ Return requested for Order #${order._id.toString().slice(-6)}: ${data.reason}`, "alert", order.sellerId);
             await notify("admin", `Return requested: Order ${order._id}`, "alert");
 
             res.json({ ok: true, order });
@@ -1179,9 +1223,11 @@ router.patch("/:id/request-return",
 // ── Approve Return (seller/admin) ─────────────────────────────────────────────
 router.patch("/:id/approve-return",
     authenticate, authorize("seller", "admin", "super_admin"),
+    require("../middleware/validateJoi")({ params: require("joi").object({ id: require("joi").string().required() }) }),
     async (req, res, next) => {
         try {
-            const order = await Order.findById(req.params.id);
+            const params = req.validatedParams || req.params;
+            const order = await Order.findById(params.id);
             if (!order) throw new NotFound("Order not found");
             if (!order.canTransitionTo("RETURN_APPROVED"))
                 throw new BadRequest(`Cannot approve return from status: ${order.status}`);
@@ -1203,9 +1249,11 @@ router.patch("/:id/approve-return",
 // ── Pickup Return (delivery partner) ──────────────────────────────────────────
 router.patch("/:id/pickup-return",
     authenticate, authorize("delivery"),
+    require("../middleware/validateJoi")({ params: require("joi").object({ id: require("joi").string().required() }) }),
     async (req, res, next) => {
         try {
-            const order = await Order.findById(req.params.id);
+            const params = req.validatedParams || req.params;
+            const order = await Order.findById(params.id);
             if (!order) throw new NotFound("Order not found");
             if (!order.canTransitionTo("RETURN_PICKED"))
                 throw new BadRequest(`Cannot pickup return from status: ${order.status}`);

@@ -19,13 +19,14 @@ const router = express.Router();
  */
 router.post("/invite-staff",
     authenticate, authorizeHierarchy("admin"),
-    require("../middleware/validateJoi")(require("joi").object({
+    require("../middleware/validateJoi")({ body: require("joi").object({
         email: require("joi").string().email().required().messages({ "string.email": "Valid email required" }),
         role: require("joi").string().valid(...Invite.STAFF_ROLES).required().messages({ "any.only": "Role must be 'admin' or 'support'" })
-    }).unknown(true)),
+    }).unknown(true) }),
     async (req, res, next) => {
         try {
-            const { email, role } = req.body;
+            const data = req.validatedBody || req.body;
+            const { email, role } = data;
 
             // Hierarchy enforcement: only super_admin can invite admins
             if (role === "admin" && req.user.role !== "super_admin") {
@@ -118,9 +119,11 @@ router.get("/invites",
  */
 router.delete("/invites/:id",
     authenticate, authorizeHierarchy("admin"),
+    require("../middleware/validateJoi")({ params: require("joi").object({ id: require("joi").string().required() }) }),
     async (req, res, next) => {
         try {
-            const invite = await Invite.findById(req.params.id);
+            const params = req.validatedParams || req.params;
+            const invite = await Invite.findById(params.id);
             if (!invite) throw new NotFound("Invite not found");
             if (invite.usedAt) throw new BadRequest("Invite already used — cannot revoke");
 
@@ -205,12 +208,17 @@ router.get("/users",
  */
 router.patch("/users/:id/suspend",
     authenticate, authorizeHierarchy("admin"),
-    require("../middleware/validateJoi")(require("joi").object({
-        reason: require("joi").string().trim().optional().allow("")
-    }).unknown(true)),
+    require("../middleware/validateJoi")({
+        params: require("joi").object({ id: require("joi").string().required() }),
+        body: require("joi").object({
+            reason: require("joi").string().trim().optional().allow("")
+        }).unknown(true)
+    }),
     async (req, res, next) => {
         try {
-            const target = await User.findById(req.params.id);
+            const data = req.validatedBody || req.body;
+            const params = req.validatedParams || req.params;
+            const target = await User.findById(params.id);
             if (!target) throw new NotFound("User not found");
 
             // Cannot suspend yourself
@@ -230,14 +238,14 @@ router.patch("/users/:id/suspend",
             await target.save();
 
             logger.info(`User suspended: ${target.email} by ${req.user.email}`, {
-                reason: req.body.reason || "No reason given",
+                reason: data.reason || "No reason given",
             });
 
             AuditLog.create({
                 action: "user_suspended", actorId: req.user._id,
                 actorName: req.user.name, actorRole: req.user.role,
                 targetId: target._id.toString(), targetType: "user",
-                details: { email: target.email, role: target.role, reason: req.body.reason || "No reason given" },
+                details: { email: target.email, role: target.role, reason: data.reason || "No reason given" },
                 ipAddress: req.ip || "unknown",
             }).catch(() => {});
 
@@ -252,9 +260,11 @@ router.patch("/users/:id/suspend",
  */
 router.patch("/users/:id/activate",
     authenticate, authorizeHierarchy("admin"),
+    require("../middleware/validateJoi")({ params: require("joi").object({ id: require("joi").string().required() }) }),
     async (req, res, next) => {
         try {
-            const target = await User.findById(req.params.id);
+            const params = req.validatedParams || req.params;
+            const target = await User.findById(params.id);
             if (!target) throw new NotFound("User not found");
 
             if (target.role === "admin" && req.user.role !== "super_admin") {

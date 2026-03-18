@@ -29,9 +29,10 @@ router.post("/register",
     validateJoi(authValidation.register),
     async (req, res, next) => {
         try {
-            const { name, email, password } = req.body;
+            const data = req.validatedBody || req.body;
+            const { name, email, password } = data;
             // Security: clamp role to public roles only — admin/support cannot self-register
-            const role = PUBLIC_ROLES.includes(req.body.role) ? req.body.role : "customer";
+            const role = PUBLIC_ROLES.includes(data.role) ? data.role : "customer";
 
             const exists = await User.findOne({ email });
             if (exists) throw new Conflict("Email already registered");
@@ -60,7 +61,8 @@ router.post("/accept-invite",
     validateJoi(authValidation.acceptInvite),
     async (req, res, next) => {
         try {
-            const { token, name, password } = req.body;
+            const data = req.validatedBody || req.body;
+            const { token, name, password } = data;
 
             const invite = await Invite.findOne({ token });
             if (!invite) throw new BadRequest("Invalid invite token");
@@ -107,7 +109,8 @@ router.post("/login",
     // Conditional CAPTCHA: only enforce after 3+ failed login attempts
     async (req, res, next) => {
         try {
-            const existingUser = await User.findOne({ email: req.body.email });
+            const data = req.validatedBody || req.body;
+            const existingUser = await User.findOne({ email: data.email });
             if (existingUser && (existingUser.loginAttempts || 0) >= 3) {
                 return verifyCaptcha(req, res, next);
             }
@@ -116,7 +119,8 @@ router.post("/login",
     },
     async (req, res, next) => {
         try {
-            const { email, password } = req.body;
+            const data = req.validatedBody || req.body;
+            const { email, password } = data;
             const user = await User.findOne({ email }).select("+password +mfaSecret");
 
             // ── Suspended account block ────────────────────────────────────
@@ -265,6 +269,7 @@ router.post("/mfa/verify",
     validateJoi(authValidation.mfaVerify),
     async (req, res, next) => {
         try {
+            const data = req.validatedBody || req.body;
             const user = await User.findById(req.user._id).select("+mfaSecret");
             if (!user || !user.mfaSecret) {
                 throw new BadRequest("MFA setup not initiated. Call /mfa/setup first.");
@@ -273,7 +278,7 @@ router.post("/mfa/verify",
             const verified = speakeasy.totp.verify({
                 secret: user.mfaSecret,
                 encoding: "base32",
-                token: req.body.token,
+                token: data.token,
                 window: 1, // Allow 1 window of drift (30s each direction)
             });
 
@@ -296,13 +301,14 @@ router.post("/mfa/verify",
  */
 router.post("/mfa/login",
     authLimiter,
-    validateJoi(require("joi").object({
+    validateJoi({ body: require("joi").object({
         mfaUserId: require("joi").string().trim().required().messages({ "any.required": "User ID required" }),
         token: require("joi").string().trim().required().messages({ "any.required": "TOTP token required" }),
-    }).unknown(false)),
+    }).unknown(false) }),
     async (req, res, next) => {
         try {
-            const { mfaUserId, token } = req.body;
+            const data = req.validatedBody || req.body;
+            const { mfaUserId, token } = data;
 
             const user = await User.findById(mfaUserId).select("+mfaSecret");
             if (!user || !user.mfaEnabled || !user.mfaSecret) {
@@ -333,9 +339,11 @@ router.post("/mfa/login",
 // ── Demo Login (quick access for demo roles) ──────────────────────────────────
 router.post("/demo/:role",
     authLimiter,
+    require("../middleware/validateJoi")({ params: require("joi").object({ role: require("joi").string().required() }) }),
     async (req, res, next) => {
         try {
-            const { role } = req.params;
+            const params = req.validatedParams || req.params;
+            const { role } = params;
             if (!User.ROLES.includes(role)) throw new BadRequest("Invalid role");
 
             const user = await User.findOne({ role, email: new RegExp(`^demo\\.${role}@`) });
@@ -419,7 +427,8 @@ router.patch("/location", authenticate,
     validateJoi(authValidation.location),
     async (req, res, next) => {
         try {
-            const { lat, lng, address } = req.body;
+            const data = req.validatedBody || req.body;
+            const { lat, lng, address } = data;
             req.user.location = {
                 lat: parseFloat(lat),
                 lng: parseFloat(lng),
@@ -437,6 +446,7 @@ router.patch("/location", authenticate,
 router.patch("/profile", authenticate, validateJoi(userValidation.updateProfile),
     async (req, res, next) => {
         try {
+            const data = req.validatedBody || req.body;
             const allowed = [
                 "name", "phone", "address",
                 "storeName", "storeId", "city", "payoutAccount", "businessHours",
@@ -446,13 +456,13 @@ router.patch("/profile", authenticate, validateJoi(userValidation.updateProfile)
                 "kycDocuments", "kycSubmittedAt"
             ];
             for (const key of allowed) {
-                if (req.body[key] !== undefined) req.user[key] = req.body[key];
+                if (data[key] !== undefined) req.user[key] = data[key];
             }
             
             // Auto-transition to SUBMITTED if documents are explicitly provided and not already verified
-            if (req.body.kycDocuments !== undefined && req.user.kycStatus !== "VERIFIED") {
+            if (data.kycDocuments !== undefined && req.user.kycStatus !== "VERIFIED") {
                 req.user.kycStatus = "SUBMITTED";
-                if (!req.body.kycSubmittedAt) {
+                if (!data.kycSubmittedAt) {
                     req.user.kycSubmittedAt = new Date(); // Server-generated timestamp fallback
                 }
             }
@@ -471,9 +481,10 @@ router.post("/google",
     validateJoi(authValidation.google),
     async (req, res, next) => {
         try {
-            const { token } = req.body;
+            const data = req.validatedBody || req.body;
+            const { token } = data;
             // Security: clamp role to public roles only
-            const role = PUBLIC_ROLES.includes(req.body.role) ? req.body.role : "customer";
+            const role = PUBLIC_ROLES.includes(data.role) ? data.role : "customer";
 
             // ── Validate Required ENV Variables ──
             if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET || !process.env.GOOGLE_CALLBACK_URL) {
@@ -650,7 +661,8 @@ router.post("/link-phone",
     validateJoi(authValidation.linkPhone),
     async (req, res, next) => {
         try {
-            const { phone, otp } = req.body;
+            const data = req.validatedBody || req.body;
+            const { phone, otp } = data;
 
             // Prevent linking if phone is already claimed
             const existing = await User.findOne({ phone, _id: { $ne: req.user._id } });
@@ -687,7 +699,8 @@ router.post("/send-otp",
     validateJoi(authValidation.sendOtp),
     async (req, res, next) => {
         try {
-            const { phone } = req.body;
+            const data = req.validatedBody || req.body;
+            const { phone } = data;
 
             // Rate limit check (in-memory 60s block)
             const lastSent = otpCooldowns.get(phone);
@@ -749,7 +762,8 @@ router.post("/verify-otp",
     validateJoi(authValidation.verifyOtp),
     async (req, res, next) => {
         try {
-            const { phone, otp, name, role } = req.body;
+            const data = req.validatedBody || req.body;
+            const { phone, otp, name, role } = data;
 
             const result = await Otp.verifyOtp(phone, otp);
             if (!result.valid) {
@@ -798,7 +812,8 @@ router.patch("/fcm-token", authenticate,
     validateJoi(authValidation.fcmToken),
     async (req, res, next) => {
         try {
-            const token = req.body.fcmToken;
+            const data = req.validatedBody || req.body;
+            const token = data.fcmToken;
 
             // Add to array without duplicates
             if (!req.user.fcmTokens) req.user.fcmTokens = [];
@@ -853,9 +868,12 @@ router.post("/send-email-verification", authenticate,
     }
 );
 
-router.get("/verify-email/:token", async (req, res, next) => {
+router.get("/verify-email/:token", 
+    require("../middleware/validateJoi")({ params: require("joi").object({ token: require("joi").string().required() }) }),
+    async (req, res, next) => {
     try {
-        const { token } = req.params;
+        const params = req.validatedParams || req.params;
+        const { token } = params;
         const user = await User.findOne({
             emailVerificationToken: token,
             emailVerificationExpires: { $gt: new Date() },
@@ -884,7 +902,8 @@ router.post("/forgot-password",
     validateJoi(authValidation.forgotPassword),
     async (req, res, next) => {
         try {
-            const { identifier } = req.body;
+            const data = req.validatedBody || req.body;
+            const { identifier } = data;
             const isEmail = identifier.includes("@");
 
             const user = await User.findOne(isEmail ? { email: identifier.toLowerCase() } : { phone: identifier });
@@ -939,7 +958,8 @@ router.post("/change-password", authenticate,
     validateJoi(authValidation.changePassword),
     async (req, res, next) => {
         try {
-            const { oldPassword, newPassword } = req.body;
+            const data = req.validatedBody || req.body;
+            const { oldPassword, newPassword } = data;
             const user = await User.findById(req.user._id).select("+password");
 
             if (!user.password) {

@@ -2,6 +2,11 @@ const Joi = require('joi');
 const { BadRequest } = require("../utils/errors");
 
 const validateJoi = (schema) => (req, res, next) => {
+    // Backward compatibility: if a bare Joi schema is passed, treat as body validation
+    if (Joi.isSchema(schema)) {
+        schema = { body: schema };
+    }
+
     const validSchema = Object.keys(schema).reduce((acc, key) => {
         if (['params', 'query', 'body'].includes(key)) {
             acc[key] = schema[key];
@@ -19,11 +24,15 @@ const validateJoi = (schema) => (req, res, next) => {
         .validate(object);
 
     if (error) {
-        const errorMessage = error.details.map((details) => details.message).join(', ');
+        const errorMessage = error.details.map(d => d.message).join(', ');
         return next(new BadRequest(errorMessage));
     }
 
-    Object.assign(req, value);
+    // ✅ SAFE (no mutation of req.query)
+    if (value.query) req.validatedQuery = value.query;
+    if (value.body) req.validatedBody = value.body;
+    if (value.params) req.validatedParams = value.params;
+
     return next();
 };
 

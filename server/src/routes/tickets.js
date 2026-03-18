@@ -9,28 +9,29 @@ const router = express.Router();
 // ── Create Ticket ─────────────────────────────────────────────────────────────
 router.post("/",
     authenticate,
-    require("../middleware/validateJoi")(require("joi").object({
+    require("../middleware/validateJoi")({ body: require("joi").object({
         issue: require("joi").string().trim().required().messages({ "any.required": "Issue description required", "string.empty": "Issue description required" }),
         orderId: require("joi").string().trim().optional(),
         problemItems: require("joi").array().optional(),
         reasonCategory: require("joi").string().optional(),
         images: require("joi").array().optional(),
         priority: require("joi").string().optional()
-    }).unknown(true)),
+    }).unknown(true) }),
     async (req, res, next) => {
         try {
+            const data = req.validatedBody || req.body;
             const ticket = await Ticket.create({
                 userId: req.user._id,
                 customerName: req.user.name,
-                orderId: req.body.orderId || undefined,
-                problemItems: req.body.problemItems || [],
-                reasonCategory: req.body.reasonCategory || "other",
-                images: req.body.images || [],
-                issue: req.body.issue,
-                priority: req.body.priority || "medium",
+                orderId: data.orderId || undefined,
+                problemItems: data.problemItems || [],
+                reasonCategory: data.reasonCategory || "other",
+                images: data.images || [],
+                issue: data.issue,
+                priority: data.priority || "medium",
             });
 
-            await notify("support", `New ticket: "${req.body.issue}"`, "ticket");
+            await notify("support", `New ticket: "${data.issue}"`, "ticket");
             res.status(201).json({ ok: true, ticket });
         } catch (err) { next(err); }
     }
@@ -62,17 +63,22 @@ router.get("/", authenticate, async (req, res, next) => {
 // ── Send Message ──────────────────────────────────────────────────────────────
 router.post("/:id/message",
     authenticate,
-    require("../middleware/validateJoi")(require("joi").object({
-        text: require("joi").string().trim().required(),
-        from: require("joi").string().valid("customer", "agent", "system").optional()
-    }).unknown(true)),
+    require("../middleware/validateJoi")({
+        params: require("joi").object({ id: require("joi").string().required() }),
+        body: require("joi").object({
+            text: require("joi").string().trim().required(),
+            from: require("joi").string().valid("customer", "agent", "system").optional()
+        }).unknown(true)
+    }),
     async (req, res, next) => {
         try {
-            const ticket = await Ticket.findById(req.params.id);
+            const data = req.validatedBody || req.body;
+            const params = req.validatedParams || req.params;
+            const ticket = await Ticket.findById(params.id);
             if (!ticket) throw new NotFound("Ticket not found");
 
             const from = req.user.role === "customer" ? "customer" : "agent";
-            ticket.messages.push({ from, text: req.body.text });
+            ticket.messages.push({ from, text: data.text });
             if (ticket.status === "open") ticket.status = "in_progress";
             await ticket.save();
 
@@ -84,9 +90,11 @@ router.post("/:id/message",
 // ── Resolve Ticket ────────────────────────────────────────────────────────────
 router.patch("/:id/resolve",
     authenticate, authorize("support", "admin", "super_admin"),
+    require("../middleware/validateJoi")({ params: require("joi").object({ id: require("joi").string().required() }) }),
     async (req, res, next) => {
         try {
-            const ticket = await Ticket.findById(req.params.id);
+            const params = req.validatedParams || req.params;
+            const ticket = await Ticket.findById(params.id);
             if (!ticket) throw new NotFound();
             ticket.status = "resolved";
             await ticket.save();
@@ -100,9 +108,11 @@ router.patch("/:id/resolve",
 // ── Escalate Ticket ───────────────────────────────────────────────────────────
 router.patch("/:id/escalate",
     authenticate, authorize("support", "admin", "super_admin"),
+    require("../middleware/validateJoi")({ params: require("joi").object({ id: require("joi").string().required() }) }),
     async (req, res, next) => {
         try {
-            const ticket = await Ticket.findById(req.params.id);
+            const params = req.validatedParams || req.params;
+            const ticket = await Ticket.findById(params.id);
             if (!ticket) throw new NotFound();
             ticket.status = "escalated";
             ticket.priority = "critical";

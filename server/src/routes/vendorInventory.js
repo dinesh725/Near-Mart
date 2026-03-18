@@ -28,7 +28,7 @@ router.get("/", authenticate, async (req, res, next) => {
 // ── Add New Supply (Vendors Only) ──────────────────────────────────────────
 router.post("/",
     authenticate, authorize("vendor"),
-    require("../middleware/validateJoi")(require("joi").object({
+    require("../middleware/validateJoi")({ body: require("joi").object({
         productName: require("joi").string().trim().required(),
         costPrice: require("joi").number().min(0).required(),
         stock: require("joi").number().integer().min(0).required(),
@@ -36,11 +36,12 @@ router.post("/",
         emoji: require("joi").string().optional(),
         minOrderQty: require("joi").number().integer().min(1).optional(),
         leadDays: require("joi").number().integer().min(0).optional()
-    }).unknown(true)),
+    }).unknown(true) }),
     async (req, res, next) => {
         try {
+            const data = req.validatedBody || req.body;
             const item = await VendorInventory.create({
-                ...req.body,
+                ...data,
                 vendorId: req.user._id,
                 vendorName: req.user.name || req.user.companyName || "Vendor"
             });
@@ -54,19 +55,24 @@ router.post("/",
 // ── Update Supply (Vendors Only) ───────────────────────────────────────────
 router.patch("/:id",
     authenticate, authorize("vendor"),
-    require("../middleware/validateJoi")(require("joi").object({
-        costPrice: require("joi").number().min(0).optional(),
-        stock: require("joi").number().integer().min(0).optional(),
-        minOrderQty: require("joi").number().integer().min(1).optional()
-    }).unknown(true)),
+    require("../middleware/validateJoi")({
+        params: require("joi").object({ id: require("joi").string().required() }),
+        body: require("joi").object({
+            costPrice: require("joi").number().min(0).optional(),
+            stock: require("joi").number().integer().min(0).optional(),
+            minOrderQty: require("joi").number().integer().min(1).optional()
+        }).unknown(true)
+    }),
     async (req, res, next) => {
         try {
-            const item = await VendorInventory.findOne({ _id: req.params.id, vendorId: req.user._id });
+            const data = req.validatedBody || req.body;
+            const params = req.validatedParams || req.params;
+            const item = await VendorInventory.findOne({ _id: params.id, vendorId: req.user._id });
             if (!item) throw new NotFound("Inventory item not found");
 
-            if (req.body.costPrice !== undefined) item.costPrice = req.body.costPrice;
-            if (req.body.stock !== undefined) item.stock = req.body.stock;
-            if (req.body.minOrderQty !== undefined) item.minOrderQty = req.body.minOrderQty;
+            if (data.costPrice !== undefined) item.costPrice = data.costPrice;
+            if (data.stock !== undefined) item.stock = data.stock;
+            if (data.minOrderQty !== undefined) item.minOrderQty = data.minOrderQty;
 
             await item.save();
             res.json({ ok: true, inventory: item });
@@ -77,9 +83,13 @@ router.patch("/:id",
 );
 
 // ── Delete Supply (Vendors Only) ───────────────────────────────────────────
-router.delete("/:id", authenticate, authorize("vendor"), async (req, res, next) => {
+router.delete("/:id", 
+    authenticate, authorize("vendor"), 
+    require("../middleware/validateJoi")({ params: require("joi").object({ id: require("joi").string().required() }) }),
+    async (req, res, next) => {
     try {
-        const item = await VendorInventory.findOneAndDelete({ _id: req.params.id, vendorId: req.user._id });
+        const params = req.validatedParams || req.params;
+        const item = await VendorInventory.findOneAndDelete({ _id: params.id, vendorId: req.user._id });
         if (!item) throw new NotFound("Inventory item not found");
         res.json({ ok: true, message: "Inventory item deleted" });
     } catch (err) {

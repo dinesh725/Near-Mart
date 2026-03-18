@@ -13,16 +13,17 @@ router.post("/",
     authenticate, 
     authorize("customer"), 
     idempotencyGuard,
-    require("../middleware/validateJoi")(require("joi").object({
+    require("../middleware/validateJoi")({ body: require("joi").object({
         items: require("joi").array().items(require("joi").object({
             productId: require("joi").string().required(),
             qty: require("joi").number().integer().min(1).required()
         }).unknown(true)).min(1).required().messages({ "array.min": "At least one item required" }),
         address: require("joi").string().trim().required().messages({ "any.required": "Address is required", "string.empty": "Address is required" })
-    }).unknown(true)),
+    }).unknown(true) }),
     async (req, res, next) => {
         try {
-            const { items, address } = req.body;
+            const data = req.validatedBody || req.body;
+            const { items, address } = data;
             let grandSubtotal = 0;
             const validItems = [];
 
@@ -74,14 +75,14 @@ router.post("/",
                 deliveryAddress: {
                     address: address,
                     location: {
-                        lat: req.body.lat || 0,
-                        lng: req.body.lng || 0
+                        lat: data.lat || 0,
+                        lng: data.lng || 0
                     }
                 },
                 // Crucial Phase 6 locks
                 status: "PENDING_PAYMENT",
                 paymentStatus: "PENDING_PAYMENT", 
-                paymentMethod: req.body.paymentMethod || "gateway"
+                paymentMethod: data.paymentMethod || "gateway"
             });
             
             // 3. Generate Gateway Intent

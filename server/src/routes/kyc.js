@@ -42,9 +42,13 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req, res) =
 const User = require('../models/User');
 
 // Admin ONLY: Fetch document image for review
-router.get('/read-url/:id', authMiddleware, roleGuard('admin', 'super_admin'), async (req, res) => {
+router.get('/read-url/:id', 
+    authMiddleware, roleGuard('admin', 'super_admin'), 
+    require("../middleware/validateJoi")({ params: require("joi").object({ id: require("joi").string().required() }) }),
+    async (req, res) => {
     try {
-        const documentIdentifier = req.params.id; // Usually a storage key/path
+        const params = req.validatedParams || req.params;
+        const documentIdentifier = params.id; // Usually a storage key/path
         const result = await generateKycReadUrl(documentIdentifier);
         
         if (!result.ok) return res.status(500).json({ error: result.error });
@@ -55,7 +59,10 @@ router.get('/read-url/:id', authMiddleware, roleGuard('admin', 'super_admin'), a
 });
 
 // Admin ONLY: Update KYC Status
-router.patch('/admin/:userId', authMiddleware, async (req, res) => {
+router.patch('/admin/:userId', 
+    authMiddleware, 
+    require("../middleware/validateJoi")({ params: require("joi").object({ userId: require("joi").string().required() }) }),
+    async (req, res) => {
     // Task 3: Add Authorization Protection
     if (req.user.role !== "admin" && req.user.role !== "super_admin") {
         return res.status(403).json({ error: "Forbidden: Admin access required" });
@@ -63,7 +70,8 @@ router.patch('/admin/:userId', authMiddleware, async (req, res) => {
 
     try {
         const { kycStatus } = req.body;
-        const { userId } = req.params;
+        const params = req.validatedParams || req.params;
+        const { userId } = params;
 
         if (!kycStatus) {
             return res.status(400).json({ error: "kycStatus is required" });

@@ -33,9 +33,13 @@ router.get("/", authenticate, async (req, res, next) => {
 });
 
 // ── Mark as Read ──────────────────────────────────────────────────────────────
-router.patch("/:id/read", authenticate, async (req, res, next) => {
+router.patch("/:id/read", 
+    authenticate, 
+    require("../middleware/validateJoi")({ params: require("joi").object({ id: require("joi").string().required() }) }),
+    async (req, res, next) => {
     try {
-        await Notification.findByIdAndUpdate(req.params.id, { read: true });
+        const params = req.validatedParams || req.params;
+        await Notification.findByIdAndUpdate(params.id, { read: true });
         res.json({ ok: true });
     } catch (err) { next(err); }
 });
