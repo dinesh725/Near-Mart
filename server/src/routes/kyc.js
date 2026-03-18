@@ -52,7 +52,7 @@ router.get('/read-url/:id',
         const result = await generateKycReadUrl(documentIdentifier);
         
         if (!result.ok) return res.status(500).json({ error: result.error });
-        res.json({ ok: true, readUrl: result.url });
+        res.json({ ok: true, readUrl: result.readUrl });
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
