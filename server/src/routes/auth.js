@@ -453,7 +453,8 @@ router.patch("/profile", authenticate, validateJoi(userValidation.updateProfile)
                 "companyName", "supplierId", "paymentTerms",
                 "vehicleType", "vehicleNo",
                 "department", "shift",
-                "kycDocuments", "kycSubmittedAt"
+                "kycDocuments", "kycSubmittedAt",
+                "avatar", "storeDescription", "isOnline", "deliveryRadius", "serviceRadius"
             ];
             for (const key of allowed) {
                 if (data[key] !== undefined) req.user[key] = data[key];

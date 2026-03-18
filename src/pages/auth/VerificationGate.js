@@ -273,7 +273,6 @@ function KycSubmissionStep() {
             // Update profile with KYC data
             const res = await updateUser({
                 companyName: companyName.trim(),
-                kycStatus: "SUBMITTED",
                 kycSubmittedAt: new Date().toISOString(),
                 kycDocuments: [{
                     docType: docType,

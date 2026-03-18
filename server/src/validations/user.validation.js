@@ -19,7 +19,13 @@ const updateProfile = {
     shift: Joi.string().trim().optional(),
     kycDocuments: Joi.array().items(Joi.object()).optional(),
     kycSubmittedAt: Joi.date().iso().optional(),
-  }).unknown(false), // Rejects unauthorized fields
+    // User-editable profile fields
+    avatar: Joi.string().optional(),
+    storeDescription: Joi.string().max(500).optional(),
+    isOnline: Joi.boolean().optional(),
+    deliveryRadius: Joi.number().min(1).max(100).optional(),
+    serviceRadius: Joi.number().min(100).max(50000).optional(),
+  }).unknown(false), // Rejects unauthorized fields (kycStatus, role, etc.)
 };
 
 module.exports = {
